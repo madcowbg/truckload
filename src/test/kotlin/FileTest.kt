@@ -9,10 +9,12 @@ import kotlin.io.path.fileSize
 import kotlin.test.Test
 
 fun Repo.dumpToConsole() {
-    println("Dumping repo...")
-    files.forEach { version ->
-        println("${Base64.encode(version.hash)} ${version.location} ${version.path}")
-    }
+    println("DUMPING REPO")
+    println("Files:")
+    files.forEach { println("[${it.logicalPath}] ${Base64.encode(it.hash)}") }
+    println("Storage:")
+    storage.forEach { version -> println("${Base64.encode(version.hash)} ${version.location} ${version.path}") }
+    println("END DUMPING REPO")
 }
 
 class FileTest {
@@ -20,7 +22,8 @@ class FileTest {
     @Test
     fun `traverse project folder`() {
         val md5 = MessageDigest.getInstance("md5")
-        val repo = Repo(File("./").walk().filter { it.isFile }.mapNotNull {
+
+        val allFiles = File("./").walk().filter { it.isFile }.mapNotNull {
             val digest = try {
                 md5.digest(it.readBytes())
             } catch (e: IOException) {
@@ -28,12 +31,16 @@ class FileTest {
             }
 
             StoredFileVersion(
-                size= it.toPath().fileSize(),
+                size = it.toPath().fileSize(),
                 hash = digest,
                 path = it.path,
                 location = Location.LocalFilesystem
             )
-        }.toList())
+        }.toList()
+        val repo = Repo(
+            files = allFiles.map { RepoFile(logicalPath = it.path, hash = it.hash) },
+            storage = allFiles
+        )
 
         repo.dumpToConsole()
 
