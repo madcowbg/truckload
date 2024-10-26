@@ -1,7 +1,5 @@
 package data.repo
 
-import data.repo.FileChunkRefs.check
-import data.repo.FileRefs.check
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.nio.file.Path
@@ -25,17 +23,14 @@ object FileRefs : Table("file_refs") {
     override val primaryKey = PrimaryKey(fileHash)
 }
 
-object FileChunkRefs : Table("file_chunk_ref") {
-    val fileHash = reference("file_hash", FileRefs.fileHash)
-    val fromByte = long("from_byte").check("fromByte_must_be_positive") { it.greaterEq(0) }
-    val toByte = long("to_byte").check("fromByte_must_be_before_toByte") { it.greaterEq(fromByte) }
-}
-
 object ParityFileRefs : Table("parity_file_refs") {
-    val parityBlock  = reference("parity_block_hash", ParityBlocks.parityHash, onDelete = ReferenceOption.RESTRICT)
-    val fileChunk = reference("file_chunk_hash", FileChunkRefs.fileHash, onDelete = ReferenceOption.RESTRICT)
-    val fromByte = long("from_byte").check("fromByte_must_be_positive") { it.greaterEq(0) }
-    val toByte = long("to_byte").check("fromByte_must_be_before_toByte") { it.greaterEq(fromByte) }
+    val parityBlock = reference("parity_block_hash", ParityBlocks.parityHash)
+
+    val chunkSize = long("chunk_size").check("chunk_size_must_be_positive") { it.greaterEq(0) }
+    val fromParityIdx = long("from_parity_idx").check("fromParityIdx_must_be_nonnegative") { it.greaterEq(0) }
+
+    val fileHash = reference("file_hash", FileRefs.fileHash)
+    val fromFileIdx = long("from_file_idx").check("fromFileIdx_must_be_nonnegative") { it.greaterEq(0) }
 }
 
 
@@ -54,7 +49,7 @@ class RepoData private constructor(val db: Database, val rootFolder: Path) {
 
             val repo = connect(repoPath)
             transaction(repo.db) {
-                SchemaUtils.create(ParityBlocks, FileRefs, FileChunkRefs, ParityFileRefs)
+                SchemaUtils.create(ParityBlocks, FileRefs, ParityFileRefs)
             }
 
             val parityBlocksPath = "$repoPath/parity_blocks"
@@ -63,8 +58,10 @@ class RepoData private constructor(val db: Database, val rootFolder: Path) {
             return repo
         }
 
-        fun connect(repoPath: String): RepoData =
-            RepoData(Database.connect("jdbc:sqlite:$repoPath/repo.db", "org.sqlite.JDBC"), Path(repoPath))
+        fun connect(repoPath: String): RepoData = RepoData(
+            Database.connect("jdbc:sqlite:$repoPath/repo.db?foreign_keys=on;", "org.sqlite.JDBC"),
+            Path(repoPath)
+        )
     }
 }
 
@@ -75,30 +72,35 @@ fun RepoData.listOfIssues(): List<InvalidRepoData> {
     fun report(issue: InvalidRepoData) = issues.add(issue)
     transaction(this.db) {
 
-        // validate file chunk refs are internally consistent
-        FileChunkRefs.selectAll().forEach {
-            if (it[FileChunkRefs.fromByte] < 0) {
-                report(InvalidRepoData("FileChunkRefs fromByte=${it[FileChunkRefs.fromByte]} is negative"))
-            }
-
-            if (it[FileChunkRefs.fromByte] >= it[FileChunkRefs.toByte]) {
-                report(InvalidRepoData("FileChunkRefs fromByte ${it[FileChunkRefs.fromByte]} >= toByte=${it[FileChunkRefs.toByte]}"))
+        // validate file chunk refs indexes are in 0...size of file
+        (ParityFileRefs innerJoin FileRefs).selectAll().forEach {
+            if (it[ParityFileRefs.fromFileIdx] + it[ParityFileRefs.chunkSize] > it[FileRefs.size]) {
+                report(
+                    InvalidRepoData(
+                        "ParityFileRefs FileRefs ${it[ParityFileRefs.fromFileIdx]} + ${it[ParityFileRefs.chunkSize]} " +
+                                "> size=${it[FileRefs.size]}"
+                    )
+                )
             }
         }
 
-        // validate file chunk refs indexes are in 0...size of file
-        (FileChunkRefs innerJoin FileRefs).selectAll().forEach {
-            if (it[FileChunkRefs.toByte] > it[FileRefs.size]) {
-                report(InvalidRepoData("FileChunkRefs toByte=${it[FileChunkRefs.toByte]} > size=${it[FileRefs.size]}"))
+        (ParityFileRefs innerJoin ParityBlocks).selectAll().forEach {
+            if (it[ParityFileRefs.fromParityIdx] + it[ParityFileRefs.chunkSize] > it[ParityBlocks.size]) {
+                report(
+                    InvalidRepoData(
+                        "ParityFileRefs ParityBlocks ${it[ParityFileRefs.fromFileIdx]} + ${it[ParityFileRefs.chunkSize]} " +
+                                "> size=${it[ParityBlocks.size]}"
+                    )
+                )
             }
         }
 
         // validate file is completely by chunks
         FileRefs.selectAll().forEach { fileRef ->
             val fileHash = fileRef[FileRefs.fileHash]
-            val chunksCoverage = FileChunkRefs.selectAll()
-                .where { FileChunkRefs.fileHash.eq(fileHash) }
-                .map { it[FileChunkRefs.fromByte] to it[FileChunkRefs.toByte] }
+            val chunksCoverage = ParityFileRefs.selectAll()
+                .where { ParityFileRefs.fileHash.eq(fileHash) }
+                .map { it[ParityFileRefs.fromFileIdx] to (it[ParityFileRefs.fromFileIdx] + it[ParityFileRefs.chunkSize]) }
                 .sortedBy { it.first }
 
             // check if two chunks overlap
@@ -120,21 +122,12 @@ fun RepoData.listOfIssues(): List<InvalidRepoData> {
             }
         }
 
-        // validate parity file refs have same sizes as file chunk refs
-        (ParityFileRefs innerJoin FileChunkRefs).selectAll().forEach { rows ->
-            val parityFileRefSize = rows[ParityFileRefs.toByte] - rows[ParityFileRefs.fromByte]
-            val fileChunkSize = rows[FileChunkRefs.toByte] - rows[FileChunkRefs.fromByte]
-            if (parityFileRefSize != fileChunkSize) {
-                report(InvalidRepoData("ParityFileRef size $parityFileRefSize != FileChunkRef size $fileChunkSize"))
-            }
-        }
-
         // validate each parity block references some file
         (ParityBlocks leftJoin ParityFileRefs)
-            .select(ParityBlocks.parityHash, ParityFileRefs.fileChunk.count())
+            .select(ParityBlocks.parityHash, ParityFileRefs.fileHash.count())
             .groupBy(ParityBlocks.parityHash)
             .forEach {
-                if (it[ParityFileRefs.fileChunk.count()] == 0L) {
+                if (it[ParityFileRefs.fileHash.count()] == 0L) {
                     report(InvalidRepoData("ParityBlocks ${it[ParityBlocks.parityHash]} is unused!"))
                 }
             }
@@ -161,7 +154,7 @@ class RepoTest {
                     .map { it[FileRefs.size] }
                     .single()
             )
-            assertEquals(4234, FileChunkRefs.selectAll().map { it[FileChunkRefs.toByte] }.single())
+            assertEquals(4234, ParityFileRefs.selectAll().map { it[ParityFileRefs.chunkSize] }.single())
             assertEquals(1, ParityFileRefs.selectAll().count())
         }
     }
@@ -177,17 +170,13 @@ class RepoTest {
             it[size] = 124123
         }
 
-        FileChunkRefs.insert {
-            it[fileHash] = "dummy_file_hash"
-            it[fromByte] = 256
-            it[toByte] = 4234
-        }
-
         ParityFileRefs.insert {
             it[parityBlock] = "whatevs"
-            it[fileChunk] = "dummy_file_hash"
-            it[fromByte] = 312
-            it[toByte] = 456
+            it[fromParityIdx] = 312
+            it[chunkSize] = 4234
+
+            it[fileHash] = "dummy_file_hash"
+            it[fromFileIdx] = 256
         }
 
 //        ParityFileRefs.selectAll().single()[ParityBlocks.parityHash] = s
@@ -210,10 +199,13 @@ class RepoTest {
 
         assertFails("[SQLITE_CONSTRAINT_CHECK] A CHECK constraint failed (CHECK constraint failed: fromByte_must_be_positive)") {
             transaction(repo.db) {
-                FileChunkRefs.insert {
-                    it[fileHash] = "missing_file_hash"
-                    it[fromByte] = -1
-                    it[toByte] = -10
+                ParityFileRefs.insert {
+                    it[parityBlock] = "whatevs2"
+                    it[fromParityIdx] = -1
+                    it[chunkSize] = -1
+
+                    it[fileHash] = "dummy_file_hash"
+                    it[fromFileIdx] = -1
                 }
             }
         }
