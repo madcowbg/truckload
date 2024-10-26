@@ -1,20 +1,22 @@
 package data.parity
 
+import data.storage.Block
 import data.storage.LiveBlock
+import data.storage.MemoryBlock
 import data.storage.ParityBlock
 import printable
 import kotlin.experimental.xor
 
 
 class ParitySet(val liveBlocks: List<LiveBlock>) {
-    val parityBlock: ParityBlock
+    val parityBlock: ParityBlock = ParityBlock(xorAll(liveBlocks))
+}
 
-    init {
-        val blockSize = liveBlocks.map { it.size }.distinct().single() // ensures block size is the same
-        val data = ByteArray(blockSize)
-        liveBlocks.forEach { block -> data.applyXor(block.data) }
-        parityBlock = ParityBlock(data)
-    }
+fun xorAll(blocks: List<Block>): ByteArray {
+    val blockSize = blocks.map { it.size }.distinct().single() // ensures block size is the same
+    val data = ByteArray(blockSize)
+    blocks.forEach { block -> data.applyXor(block.data) }
+    return data
 }
 
 private fun ByteArray.applyXor(other: ByteArray) {
@@ -37,3 +39,6 @@ fun naiveParitySets(blockMapping: BlockMapping): List<ParitySet> {
     }
     return paritySets
 }
+
+fun restoreBlock(partialSet: List<Block>): MemoryBlock =
+    MemoryBlock(xorAll(partialSet))
