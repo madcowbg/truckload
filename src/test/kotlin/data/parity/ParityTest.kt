@@ -37,7 +37,6 @@ class ParityTest {
         }
     }
 
-    @OptIn(ExperimentalUnsignedTypes::class)
     @Test
     fun `can restore from parity blocks`() {
         for (paritySet in paritySets) {
@@ -48,14 +47,14 @@ class ParityTest {
                 val restoredBlock = restoreBlock(partialSet + listOf(paritySet.parityBlock))
 
                 assertContentEquals(
-                    paritySet.liveBlocks[i].data.toUByteArray(),
-                    restoredBlock.data.toUByteArray(),
+                    paritySet.liveBlocks[i].data,
+                    restoredBlock.data,
                     "restore unsuccessful at idx $i"
                 )
             }
             assertContentEquals(
-                paritySet.parityBlock.data.toUByteArray(),
-                restoreBlock(paritySet.liveBlocks).data.toUByteArray(),
+                paritySet.parityBlock.data,
+                restoreBlock(paritySet.liveBlocks).data,
                 "restore unsuccessful for parity block"
             )
         }
