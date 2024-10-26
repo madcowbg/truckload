@@ -5,6 +5,7 @@ import org.jetbrains.exposed.sql.transactions.transaction
 import java.nio.file.Path
 import kotlin.io.path.*
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 
@@ -178,8 +179,6 @@ class RepoTest {
             it[fileHash] = "dummy_file_hash"
             it[fromFileIdx] = 256
         }
-
-//        ParityFileRefs.selectAll().single()[ParityBlocks.parityHash] = s
     }
 
     @Test
@@ -213,5 +212,15 @@ class RepoTest {
         for (issue in repo.listOfIssues()) {
             println(issue.message)
         }
+
+        assertContentEquals(
+            listOf(
+                "ParityFileRefs ParityBlocks 256 + 4234 > size=4096",
+                "Gap between 0 and 256.",
+                "Gap between 4490 and 124123",
+                "ParityBlocks unused is unused!"
+            ),
+            repo.listOfIssues().map { it.message }
+        )
     }
 }
