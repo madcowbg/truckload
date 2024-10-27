@@ -6,7 +6,7 @@ import org.jetbrains.exposed.sql.transactions.transaction
 import java.nio.file.Path
 import kotlin.io.path.*
 
-class RepoData private constructor(val db: Database, val rootFolder: Path) {
+class StoredRepo private constructor(val db: Database, val rootFolder: Path) {
 
     companion object {
         @OptIn(ExperimentalPathApi::class)
@@ -16,7 +16,7 @@ class RepoData private constructor(val db: Database, val rootFolder: Path) {
             }
         }
 
-        fun init(repoPath: String): RepoData {
+        fun init(repoPath: String): StoredRepo {
             Path(repoPath).createDirectories()
 
             val repo = connect(repoPath)
@@ -30,7 +30,7 @@ class RepoData private constructor(val db: Database, val rootFolder: Path) {
             return repo
         }
 
-        fun connect(repoPath: String): RepoData = RepoData(
+        fun connect(repoPath: String): StoredRepo = StoredRepo(
             Database.connect("jdbc:sqlite:$repoPath/repo.db?foreign_keys=on;", "org.sqlite.JDBC"),
             Path(repoPath)
         )

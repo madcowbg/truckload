@@ -9,7 +9,7 @@ interface Block {
     val data: ByteArray
 }
 
-class FileReference(val file: File, val from: Int, val to: Int) {
+class FileReference(val file: File, val fileHash: ByteArray, val from: Int, val to: Int) {
     val size: Int = to - from
     val data: ByteArray by lazy {
         file.readBytes().copyOfRange(from, to) // fixme this can only read 2GB files

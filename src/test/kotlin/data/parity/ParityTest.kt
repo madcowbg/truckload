@@ -2,14 +2,14 @@ package data.parity
 
 import data.repo.Repo
 import data.repo.readFolder
-import data.storage.Block
-import data.storage.MemoryBlock
 import org.junit.jupiter.api.Test
 import printable
 import java.io.File
+import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.test.assertContentEquals
 
 
+@OptIn(ExperimentalEncodingApi::class)
 class ParityTest {
     private val repo: Repo = readFolder(File("./.experiments/data"))
     private val blockMapping: BlockMapping = naiveBlockMapping(repo)
@@ -23,7 +23,7 @@ class ParityTest {
             println("$file -> ${blocks.size}: $blocks")
         }
         println("block to file:")
-        for (fileBlock in blockMapping.fileBlocks.values) {
+        for (fileBlock in blockMapping.fileBlocks) {
             println("${fileBlock.hash.printable} ${fileBlock.files}")
         }
     }

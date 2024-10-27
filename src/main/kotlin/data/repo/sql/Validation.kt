@@ -4,7 +4,7 @@ import org.jetbrains.exposed.sql.count
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 
-fun RepoData.listOfIssues(): List<InvalidRepoData> {
+fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
     val issues = mutableListOf<InvalidRepoData>()
     fun report(issue: InvalidRepoData) = issues.add(issue)
     transaction(this.db) {
@@ -61,11 +61,11 @@ fun RepoData.listOfIssues(): List<InvalidRepoData> {
 
         // validate each parity block references some file
         (ParityBlocks leftJoin ParityFileRefs)
-            .select(ParityBlocks.parityHash, ParityFileRefs.fileHash.count())
-            .groupBy(ParityBlocks.parityHash)
+            .select(ParityBlocks.hash, ParityFileRefs.fileHash.count())
+            .groupBy(ParityBlocks.hash)
             .forEach {
                 if (it[ParityFileRefs.fileHash.count()] == 0L) {
-                    report(InvalidRepoData("ParityBlocks ${it[ParityBlocks.parityHash]} is unused!"))
+                    report(InvalidRepoData("ParityBlocks ${it[ParityBlocks.hash]} is unused!"))
                 }
             }
     }

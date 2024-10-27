@@ -13,15 +13,15 @@ class RepoTest {
     @Test
     fun `put dummy data in repo db`() {
         val repoPath = "./.experiments/test_insert/.repo"
-        RepoData.delete(repoPath)
-        val repo: RepoData = RepoData.init(repoPath)
+        StoredRepo.delete(repoPath)
+        val repo: StoredRepo = StoredRepo.init(repoPath)
 
         transaction(repo.db) {
             insertDemoData()
         }
 
         transaction(repo.db) {
-            assertEquals(listOf("whatevs"), ParityBlocks.selectAll().map { it[ParityBlocks.parityHash] })
+            assertEquals(listOf("whatevs"), ParityBlocks.selectAll().map { it[ParityBlocks.hash] })
             assertEquals(124123,
                 FileRefs.selectAll()
                     .where { FileRefs.fileHash.eq("dummy_file_hash") }
@@ -35,7 +35,7 @@ class RepoTest {
 
     private fun insertDemoData() {
         ParityBlocks.insert {
-            it[parityHash] = "whatevs"
+            it[hash] = "whatevs"
             it[size] = 4096
         }
 
@@ -57,13 +57,13 @@ class RepoTest {
     @Test
     fun `test validation of repo data`() {
         val repoPath = "./.experiments/test_validation/.repo"
-        RepoData.delete(repoPath)
-        val repo: RepoData = RepoData.init(repoPath)
+        StoredRepo.delete(repoPath)
+        val repo: StoredRepo = StoredRepo.init(repoPath)
         transaction(repo.db) {
             insertDemoData()
 
             ParityBlocks.insert {
-                it[parityHash] = "unused"
+                it[hash] = "unused"
                 it[size] = 8096
             }
 
