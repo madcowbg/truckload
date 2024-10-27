@@ -13,7 +13,7 @@ interface Location {
 class StoredFileVersion(
     val path: String,
     val location: Location,
-    val hash: ByteArray,
+    val hash: Hash,
     val size: Int // FIXME make long to support files >2GB
 ) {
     init {

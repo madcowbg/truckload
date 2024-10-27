@@ -1,22 +1,21 @@
 package data.repo
 
+import data.storage.Hash
 import data.storage.Location
 import data.storage.StoredFileVersion
 import java.io.File
 import java.io.IOException
-import java.security.MessageDigest
 import kotlin.io.path.fileSize
 
-class RepoFile(val logicalPath: String, val hash: ByteArray)
+class RepoFile(val logicalPath: String, val hash: Hash)
 class Repo(val files: List<RepoFile>, val storage: List<StoredFileVersion>)
 
 
 fun readFolder(rootFolder: File): Repo {
     val rootLocation = Location.LocalFilesystem(rootFolder.path)
-    val md5 = MessageDigest.getInstance("md5")
     val allFiles = rootFolder.walk().filter { it.isFile }.mapNotNull {
         val digest = try {
-            md5.digest(it.readBytes())
+            Hash.digest(it.readBytes())
         } catch (e: IOException) {
             return@mapNotNull null
         }

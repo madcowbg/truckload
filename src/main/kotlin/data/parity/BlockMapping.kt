@@ -2,6 +2,7 @@ package data.parity
 
 import data.repo.Repo
 import data.storage.FileReference
+import data.storage.Hash
 import data.storage.LiveBlock
 import java.io.File
 import kotlin.io.encoding.Base64
@@ -9,12 +10,12 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 
 @ExperimentalEncodingApi
 class BlockMapping(val fileBlocks: List<LiveBlock>) {
-    val blocksForFile: MutableMap<File, ArrayList<String>> = mutableMapOf()
+    val blocksForFile: MutableMap<File, ArrayList<Hash>> = mutableMapOf()
 
     init {
         for (block in fileBlocks) {
-            for (file in  block.files) {
-                blocksForFile.computeIfAbsent(file.file) {ArrayList()}.add(Base64.encode(block.hash))
+            for (file in block.files) {
+                blocksForFile.computeIfAbsent(file.file) { ArrayList() }.add(block.hash)
             }
         }
     }

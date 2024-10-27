@@ -32,7 +32,7 @@ class BuildRepoTest {
         for (file in repo.storage) {
             transaction(storedRepo.db) {
                 FileRefs.insertIgnore { // ignore because two files can be in different places
-                    it[fileHash] = Base64.encode(file.hash)
+                    it[fileHash] = file.hash.storeable
                     it[size] = file.size
                 }
             }
@@ -40,25 +40,25 @@ class BuildRepoTest {
 
         for (liveBlock in blockMapping.fileBlocks) {
             transaction(storedRepo.db) {
-                if (!ParityBlocks.selectAll().where(ParityBlocks.hash.eq(Base64.encode(liveBlock.hash))).empty()) {
+                if (!ParityBlocks.selectAll().where(ParityBlocks.hash.eq(liveBlock.hash.storeable)).empty()) {
                     println(
-                        "duplicate parity block ${Base64.encode(liveBlock.hash)} " +
+                        "duplicate parity block ${liveBlock.hash} " +
                                 "when # of stored is ${ParityBlocks.selectAll().count()}."
                     )
                 }
 
                 ParityBlocks.insertIgnore { // blocks can duplicate, e.g. empty or repeating values
-                    it[hash] = Base64.encode(liveBlock.hash)
+                    it[hash] = liveBlock.hash.storeable
                     it[size] = liveBlock.size
                 }
 
                 for (file in liveBlock.files) {
                     ParityFileRefs.insertIgnore { // files with the same content will duplicate
-                        it[parityBlock] = Base64.encode(liveBlock.hash)
+                        it[parityBlock] = liveBlock.hash.storeable
                         it[fromParityIdx] = 0
                         it[fromFileIdx] = file.from.toLong()
                         it[chunkSize] = file.size.toLong()
-                        it[fileHash] = Base64.encode(file.fileHash)
+                        it[fileHash] = file.fileHash.storeable
                     }
                 }
 

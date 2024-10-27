@@ -4,7 +4,6 @@ import data.storage.Block
 import data.storage.LiveBlock
 import data.storage.MemoryBlock
 import data.storage.ParityBlock
-import printable
 import kotlin.experimental.xor
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -29,7 +28,7 @@ private fun ByteArray.applyXor(other: ByteArray) {
 @OptIn(ExperimentalEncodingApi::class)
 fun naiveParitySets(blockMapping: BlockMapping): List<ParitySet> {
     val paritySetSize = 4
-    val liveBlocks = blockMapping.fileBlocks.sortedBy { it.hash.printable } // fixme stupid way to sort...
+    val liveBlocks = blockMapping.fileBlocks.sortedBy { it.hash } // fixme stupid way to sort...
     val setsCnt = (liveBlocks.size - 1) / paritySetSize + 1
     val paritySets = (0 until setsCnt).map {
         ParitySet(

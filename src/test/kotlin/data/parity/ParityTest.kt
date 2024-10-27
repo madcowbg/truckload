@@ -3,7 +3,6 @@ package data.parity
 import data.repo.Repo
 import data.repo.readFolder
 import org.junit.jupiter.api.Test
-import printable
 import java.io.File
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.test.assertContentEquals
@@ -24,7 +23,7 @@ class ParityTest {
         }
         println("block to file:")
         for (fileBlock in blockMapping.fileBlocks) {
-            println("${fileBlock.hash.printable} ${fileBlock.files}")
+            println("${fileBlock.hash} ${fileBlock.files}")
         }
     }
 
@@ -32,8 +31,8 @@ class ParityTest {
     fun `calculate add parity blocks and dump them`() {
         println("Parity sets:")
         for (paritySet in paritySets) {
-            println("${paritySet.parityBlock.hash.printable}: ${paritySet.parityBlock.data.printable}")
-            println(" protecting ${paritySet.liveBlocks.map { it.hash.printable }}")
+            println("${paritySet.parityBlock.hash}: ${paritySet.parityBlock.data}")
+            println(" protecting ${paritySet.liveBlocks.map { it.hash }}")
         }
     }
 
@@ -41,7 +40,7 @@ class ParityTest {
     fun `can restore from parity blocks`() {
         for (paritySet in paritySets) {
             for (i in paritySet.liveBlocks.indices) {
-                println("restoring ${paritySet.parityBlock.hash.printable} for idx $i")
+                println("restoring ${paritySet.parityBlock.hash} for idx $i")
                 val partialSet =
                     paritySet.liveBlocks.subList(0, i) + paritySet.liveBlocks.subList(i + 1, paritySet.liveBlocks.size)
                 val restoredBlock = restoreBlock(partialSet + listOf(paritySet.parityBlock))
