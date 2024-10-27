@@ -5,7 +5,7 @@ import data.repo.Repo
 import data.repo.readFolder
 import data.storage.DeviceFileSystem
 import dumpToConsole
-import java.io.File
+import perftest.TestDataSettings
 import kotlin.test.Test
 
 

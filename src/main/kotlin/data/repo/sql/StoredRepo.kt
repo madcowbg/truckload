@@ -5,7 +5,6 @@ import data.parity.naiveBlockMapping
 import data.parity.naiveParitySets
 import data.repo.Repo
 import data.repo.readFolder
-import data.storage.DeviceFileSystem
 import data.storage.FileSystem
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
@@ -55,13 +54,17 @@ class StoredRepo private constructor(val db: Database, val rootFolder: Path) {
 
 class InvalidRepoData(val message: String)
 
-fun StoredRepo.naiveInitializeRepo(location: FileSystem): StoredRepo {
+fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Unit): StoredRepo {
     val storedRepo = this
 
+    logger("Reading folder ...")
     val repo: Repo = readFolder(location)
+    logger("Mapping to blocks ...")
     val blockMapping: BlockMapping = naiveBlockMapping(repo)
+    logger("Calculating parity sets ...")
     val paritySets = naiveParitySets(blockMapping)
 
+    logger("insert files in catalogue...")
     // insert files in catalogue
     transaction(storedRepo.db) {
         for (file in repo.storage) {
@@ -77,8 +80,9 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem): StoredRepo {
         }
     }
 
-    // insert live block mapping
 
+    logger("insert live block mapping...")
+    // insert live block mapping
     transaction(storedRepo.db) {
         for (liveBlock in blockMapping.fileBlocks) {
             if (false && !DataBlocks.selectAll().where(DataBlocks.hash.eq(liveBlock.hash.storeable)).empty()) {
@@ -106,6 +110,7 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem): StoredRepo {
         }
     }
 
+    logger("insert computed parity sets...")
     // insert computed parity sets
     transaction(storedRepo.db) {
         for (paritySet in paritySets) {
@@ -145,6 +150,6 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem): StoredRepo {
             }
         }
     }
-
+    logger("done init!")
     return storedRepo
 }

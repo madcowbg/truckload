@@ -1,6 +1,6 @@
 package data.parity
 
-import data.TestDataSettings
+import perftest.TestDataSettings
 import data.repo.Repo
 import data.repo.readFolder
 import data.storage.DeviceFileSystem

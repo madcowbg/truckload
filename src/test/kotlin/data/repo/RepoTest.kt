@@ -1,6 +1,6 @@
 package data.repo
 
-import data.TestDataSettings
+import perftest.TestDataSettings
 import data.repo.sql.*
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.transactions.transaction

@@ -1,9 +1,15 @@
 package data
 
+import data.repo.sql.CatalogueFile
 import data.repo.sql.StoredRepo
 import data.repo.sql.listOfIssues
 import data.repo.sql.naiveInitializeRepo
 import data.storage.DeviceFileSystem
+import org.jetbrains.exposed.sql.selectAll
+import org.jetbrains.exposed.sql.transactions.transaction
+import perftest.DummyFileSystem
+import perftest.TestDataSettings
+import java.util.logging.Logger
 import kotlin.test.Test
 
 
@@ -18,9 +24,12 @@ class BuildRepoTest {
 
         val location = DeviceFileSystem("${TestDataSettings.test_path}/.experiments/data")
 
-        storedRepo.naiveInitializeRepo(location)
+        storedRepo.naiveInitializeRepo(location) { msg -> Logger.getGlobal().log.info(msg) }
 
         storedRepo.listOfIssues().forEach { println(it.message) }
+        transaction(storedRepo.db) {
+            CatalogueFile.selectAll().forEach { println(it[CatalogueFile.path]) }
+        }
     }
 
     @Test
@@ -30,9 +39,9 @@ class BuildRepoTest {
         StoredRepo.init(repoPath)
         val storedRepo: StoredRepo = StoredRepo.connect(repoPath)
 
-        val location = DummyFileSystem(nFiles = 1000, meanSize = 100, stdSize = 500, filenameLength = 100)
+        val location = DummyFileSystem(nFiles = 10000, meanSize = 400, stdSize = 500, filenameLength = 100)
 
-        storedRepo.naiveInitializeRepo(location)
+        storedRepo.naiveInitializeRepo(location) { msg -> Logger.getGlobal().log.info(msg) }
         storedRepo.listOfIssues().forEach { println(it.message) }
     }
 }
