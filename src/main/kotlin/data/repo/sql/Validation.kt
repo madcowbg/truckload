@@ -1,5 +1,6 @@
 package data.repo.sql
 
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.count
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -14,7 +15,7 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
             if (it[FileDataBlockMappings.fileOffset] + it[FileDataBlockMappings.chunkSize] > it[FileRefs.size]) {
                 report(
                     InvalidRepoData(
-                        "ParityFileRefs FileRefs ${it[FileDataBlockMappings.fileOffset]} + ${it[FileDataBlockMappings.chunkSize]} " +
+                        "FileDataBlockMappings FileRefs ${it[FileDataBlockMappings.fileOffset]} + ${it[FileDataBlockMappings.chunkSize]} " +
                                 "> size=${it[FileRefs.size]}"
                     )
                 )
@@ -25,7 +26,7 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
             if (it[FileDataBlockMappings.blockOffset] + it[FileDataBlockMappings.chunkSize] > it[DataBlocks.size]) {
                 report(
                     InvalidRepoData(
-                        "ParityFileRefs ParityBlocks ${it[FileDataBlockMappings.fileOffset]} + ${it[FileDataBlockMappings.chunkSize]} " +
+                        "FileDataBlockMappings ParityBlocks ${it[FileDataBlockMappings.fileOffset]} + ${it[FileDataBlockMappings.chunkSize]} " +
                                 "> size=${it[DataBlocks.size]}"
                     )
                 )
@@ -65,7 +66,7 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
             .groupBy(DataBlocks.hash)
             .forEach {
                 if (it[FileDataBlockMappings.fileHash.count()] == 0L) {
-                    report(InvalidRepoData("ParityBlocks ${it[DataBlocks.hash]} is unused!"))
+                    report(InvalidRepoData("DataBlocks ${it[DataBlocks.hash]} is unused!"))
                 }
             }
 
@@ -73,8 +74,23 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
         (FileRefs leftJoin CatalogueFile)
             .select(FileRefs.hash, CatalogueFile.path.count())
             .groupBy(FileRefs.hash).forEach {
-            if (it[CatalogueFile.path.count()] == 0L) {
-                report(InvalidRepoData("FileRefs ${it[FileRefs.hash]} is unused!"))
+                if (it[CatalogueFile.path.count()] == 0L) {
+                    report(InvalidRepoData("FileRefs ${it[FileRefs.hash]} is unused!"))
+                }
+            }
+
+        // validate parity data block mappings are 0..numDeviceBlocksInSet
+        ParitySets.selectAll().forEach { paritySet ->
+            val id = paritySet[ParitySets.id]
+            val numDeviceBlocksInSet = paritySet[ParitySets.numDeviceBlocks]
+            val dataBlockIdxs = ParityDataBlockMappings.selectAll().where(ParityDataBlockMappings.paritySetId.eq(id))
+                .map { it[ParityDataBlockMappings.indexInSet] }.sorted()
+
+            (0 until numDeviceBlocksInSet).filter { it !in dataBlockIdxs }.forEach {
+                report(InvalidRepoData("Data block index=$it is not available in ParityDataBlockMappings[$id]"))
+            }
+            dataBlockIdxs.filter { it !in 0 until numDeviceBlocksInSet }.forEach {
+                report(InvalidRepoData("ParityDataBlockMappings[$id] block index=$it is outside accepted indexes 0..${numDeviceBlocksInSet}"))
             }
         }
     }

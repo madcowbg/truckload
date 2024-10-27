@@ -67,6 +67,29 @@ class RepoTest {
                 it[size] = 8096
             }
 
+            ParityBlocks.insert {
+                it[hash] = "some_parity"
+                it[size] = 4093
+            }
+
+            ParityBlocks.insert {
+                it[hash] = "some_other_parity"
+                it[size] = 4093
+            }
+
+
+            val setId = ParitySets.insertAndGetId {
+                it[parityType] = ParityType.RAID6
+                it[numDeviceBlocks] = 2
+                it[parityPHash] = "some_parity"
+                it[parityQHash] = "some_other_parity"
+            }
+
+            ParityDataBlockMappings.insert {
+                it[dataBlockHash] = "whatevs"
+                it[indexInSet] = 2
+                it[paritySetId] = setId
+            }
         }
 
         assertFails("[SQLITE_CONSTRAINT_CHECK] A CHECK constraint failed (CHECK constraint failed: fromByte_must_be_positive)") {
@@ -88,11 +111,14 @@ class RepoTest {
 
         assertContentEquals(
             listOf(
-                "ParityFileRefs ParityBlocks 256 + 4234 > size=4096",
+                "FileDataBlockMappings ParityBlocks 256 + 4234 > size=4096",
                 "Gap between 0 and 256.",
                 "Gap between 4490 and 124123",
-                "ParityBlocks unused is unused!",
-                "FileRefs dummy_file_hash is unused!"
+                "DataBlocks unused is unused!",
+                "FileRefs dummy_file_hash is unused!",
+                "Data block index=0 is not available in ParityDataBlockMappings[1]",
+                "Data block index=1 is not available in ParityDataBlockMappings[1]",
+                "ParityDataBlockMappings[1] block index=2 is outside accepted indexes 0..2"
             ),
             repo.listOfIssues().map { it.message }
         )
