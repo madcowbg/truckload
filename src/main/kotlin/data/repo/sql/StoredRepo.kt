@@ -35,7 +35,11 @@ class StoredRepo private constructor(val db: Database, val rootFolder: Path) {
                     CatalogueFile,
                     ParityBlocks,
                     ParitySets,
-                    ParityDataBlockMappings
+                    ParityDataBlockMappings,
+                    FileVersions,
+                    StorageMediaFileLocations,
+                    ParityLocations,
+                    StorageMedia
                 )
             }
 
