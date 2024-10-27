@@ -30,7 +30,7 @@ class BuildRepoTest {
         for (file in repo.storage) {
             transaction(storedRepo.db) {
                 FileRefs.insertIgnore { // ignore because two files can be in different places
-                    it[fileHash] = file.hash.storeable
+                    it[hash] = file.hash.storeable
                     it[size] = file.size
                 }
 
@@ -57,9 +57,9 @@ class BuildRepoTest {
 
                 for (file in liveBlock.files) {
                     FileDataBlockMappings.insertIgnore { // files with the same content will duplicate
-                        it[parityBlock] = liveBlock.hash.storeable
-                        it[fromParityIdx] = 0
-                        it[fromFileIdx] = file.from.toLong()
+                        it[dataBlockHash] = liveBlock.hash.storeable
+                        it[blockOffset] = 0
+                        it[fileOffset] = file.from.toLong()
                         it[chunkSize] = file.size.toLong()
                         it[fileHash] = file.fileHash.storeable
                     }

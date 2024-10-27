@@ -24,7 +24,7 @@ class RepoTest {
             assertEquals(listOf("whatevs"), DataBlocks.selectAll().map { it[DataBlocks.hash] })
             assertEquals(124123,
                 FileRefs.selectAll()
-                    .where { FileRefs.fileHash.eq("dummy_file_hash") }
+                    .where { FileRefs.hash.eq("dummy_file_hash") }
                     .map { it[FileRefs.size] }
                     .single()
             )
@@ -40,17 +40,17 @@ class RepoTest {
         }
 
         FileRefs.insert {
-            it[fileHash] = "dummy_file_hash"
+            it[hash] = "dummy_file_hash"
             it[size] = 124123
         }
 
         FileDataBlockMappings.insert {
-            it[parityBlock] = "whatevs"
-            it[fromParityIdx] = 312
+            it[dataBlockHash] = "whatevs"
+            it[blockOffset] = 312
             it[chunkSize] = 4234
 
             it[fileHash] = "dummy_file_hash"
-            it[fromFileIdx] = 256
+            it[fileOffset] = 256
         }
     }
 
@@ -72,12 +72,12 @@ class RepoTest {
         assertFails("[SQLITE_CONSTRAINT_CHECK] A CHECK constraint failed (CHECK constraint failed: fromByte_must_be_positive)") {
             transaction(repo.db) {
                 FileDataBlockMappings.insert {
-                    it[parityBlock] = "whatevs2"
-                    it[fromParityIdx] = -1
+                    it[dataBlockHash] = "whatevs2"
+                    it[blockOffset] = -1
                     it[chunkSize] = -1
 
                     it[fileHash] = "dummy_file_hash"
-                    it[fromFileIdx] = -1
+                    it[fileOffset] = -1
                 }
             }
         }

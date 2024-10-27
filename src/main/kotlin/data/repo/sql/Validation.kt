@@ -11,10 +11,10 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
 
         // validate file chunk refs indexes are in 0...size of file
         (FileDataBlockMappings innerJoin FileRefs).selectAll().forEach {
-            if (it[FileDataBlockMappings.fromFileIdx] + it[FileDataBlockMappings.chunkSize] > it[FileRefs.size]) {
+            if (it[FileDataBlockMappings.fileOffset] + it[FileDataBlockMappings.chunkSize] > it[FileRefs.size]) {
                 report(
                     InvalidRepoData(
-                        "ParityFileRefs FileRefs ${it[FileDataBlockMappings.fromFileIdx]} + ${it[FileDataBlockMappings.chunkSize]} " +
+                        "ParityFileRefs FileRefs ${it[FileDataBlockMappings.fileOffset]} + ${it[FileDataBlockMappings.chunkSize]} " +
                                 "> size=${it[FileRefs.size]}"
                     )
                 )
@@ -22,10 +22,10 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
         }
 
         (FileDataBlockMappings innerJoin DataBlocks).selectAll().forEach {
-            if (it[FileDataBlockMappings.fromParityIdx] + it[FileDataBlockMappings.chunkSize] > it[DataBlocks.size]) {
+            if (it[FileDataBlockMappings.blockOffset] + it[FileDataBlockMappings.chunkSize] > it[DataBlocks.size]) {
                 report(
                     InvalidRepoData(
-                        "ParityFileRefs ParityBlocks ${it[FileDataBlockMappings.fromFileIdx]} + ${it[FileDataBlockMappings.chunkSize]} " +
+                        "ParityFileRefs ParityBlocks ${it[FileDataBlockMappings.fileOffset]} + ${it[FileDataBlockMappings.chunkSize]} " +
                                 "> size=${it[DataBlocks.size]}"
                     )
                 )
@@ -34,10 +34,10 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
 
         // validate file is completely by chunks
         FileRefs.selectAll().forEach { fileRef ->
-            val fileHash = fileRef[FileRefs.fileHash]
+            val fileHash = fileRef[FileRefs.hash]
             val chunksCoverage = FileDataBlockMappings.selectAll()
                 .where { FileDataBlockMappings.fileHash.eq(fileHash) }
-                .map { it[FileDataBlockMappings.fromFileIdx] to (it[FileDataBlockMappings.fromFileIdx] + it[FileDataBlockMappings.chunkSize]) }
+                .map { it[FileDataBlockMappings.fileOffset] to (it[FileDataBlockMappings.fileOffset] + it[FileDataBlockMappings.chunkSize]) }
                 .sortedBy { it.first }
 
             // check if two chunks overlap
@@ -71,10 +71,10 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
 
         // validate each file ref is used for at least one file in the catalogue
         (FileRefs leftJoin CatalogueFile)
-            .select(FileRefs.fileHash, CatalogueFile.path.count())
-            .groupBy(FileRefs.fileHash).forEach {
+            .select(FileRefs.hash, CatalogueFile.path.count())
+            .groupBy(FileRefs.hash).forEach {
             if (it[CatalogueFile.path.count()] == 0L) {
-                report(InvalidRepoData("FileRefs ${it[FileRefs.fileHash]} is unused!"))
+                report(InvalidRepoData("FileRefs ${it[FileRefs.hash]} is unused!"))
             }
         }
     }
