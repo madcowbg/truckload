@@ -10,23 +10,23 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
     transaction(this.db) {
 
         // validate file chunk refs indexes are in 0...size of file
-        (ParityFileRefs innerJoin FileRefs).selectAll().forEach {
-            if (it[ParityFileRefs.fromFileIdx] + it[ParityFileRefs.chunkSize] > it[FileRefs.size]) {
+        (FileDataBlockMappings innerJoin FileRefs).selectAll().forEach {
+            if (it[FileDataBlockMappings.fromFileIdx] + it[FileDataBlockMappings.chunkSize] > it[FileRefs.size]) {
                 report(
                     InvalidRepoData(
-                        "ParityFileRefs FileRefs ${it[ParityFileRefs.fromFileIdx]} + ${it[ParityFileRefs.chunkSize]} " +
+                        "ParityFileRefs FileRefs ${it[FileDataBlockMappings.fromFileIdx]} + ${it[FileDataBlockMappings.chunkSize]} " +
                                 "> size=${it[FileRefs.size]}"
                     )
                 )
             }
         }
 
-        (ParityFileRefs innerJoin ParityBlocks).selectAll().forEach {
-            if (it[ParityFileRefs.fromParityIdx] + it[ParityFileRefs.chunkSize] > it[ParityBlocks.size]) {
+        (FileDataBlockMappings innerJoin DataBlocks).selectAll().forEach {
+            if (it[FileDataBlockMappings.fromParityIdx] + it[FileDataBlockMappings.chunkSize] > it[DataBlocks.size]) {
                 report(
                     InvalidRepoData(
-                        "ParityFileRefs ParityBlocks ${it[ParityFileRefs.fromFileIdx]} + ${it[ParityFileRefs.chunkSize]} " +
-                                "> size=${it[ParityBlocks.size]}"
+                        "ParityFileRefs ParityBlocks ${it[FileDataBlockMappings.fromFileIdx]} + ${it[FileDataBlockMappings.chunkSize]} " +
+                                "> size=${it[DataBlocks.size]}"
                     )
                 )
             }
@@ -35,9 +35,9 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
         // validate file is completely by chunks
         FileRefs.selectAll().forEach { fileRef ->
             val fileHash = fileRef[FileRefs.fileHash]
-            val chunksCoverage = ParityFileRefs.selectAll()
-                .where { ParityFileRefs.fileHash.eq(fileHash) }
-                .map { it[ParityFileRefs.fromFileIdx] to (it[ParityFileRefs.fromFileIdx] + it[ParityFileRefs.chunkSize]) }
+            val chunksCoverage = FileDataBlockMappings.selectAll()
+                .where { FileDataBlockMappings.fileHash.eq(fileHash) }
+                .map { it[FileDataBlockMappings.fromFileIdx] to (it[FileDataBlockMappings.fromFileIdx] + it[FileDataBlockMappings.chunkSize]) }
                 .sortedBy { it.first }
 
             // check if two chunks overlap
@@ -60,12 +60,12 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
         }
 
         // validate each parity block references some file
-        (ParityBlocks leftJoin ParityFileRefs)
-            .select(ParityBlocks.hash, ParityFileRefs.fileHash.count())
-            .groupBy(ParityBlocks.hash)
+        (DataBlocks leftJoin FileDataBlockMappings)
+            .select(DataBlocks.hash, FileDataBlockMappings.fileHash.count())
+            .groupBy(DataBlocks.hash)
             .forEach {
-                if (it[ParityFileRefs.fileHash.count()] == 0L) {
-                    report(InvalidRepoData("ParityBlocks ${it[ParityBlocks.hash]} is unused!"))
+                if (it[FileDataBlockMappings.fileHash.count()] == 0L) {
+                    report(InvalidRepoData("ParityBlocks ${it[DataBlocks.hash]} is unused!"))
                 }
             }
 

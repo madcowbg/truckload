@@ -21,20 +21,20 @@ class RepoTest {
         }
 
         transaction(repo.db) {
-            assertEquals(listOf("whatevs"), ParityBlocks.selectAll().map { it[ParityBlocks.hash] })
+            assertEquals(listOf("whatevs"), DataBlocks.selectAll().map { it[DataBlocks.hash] })
             assertEquals(124123,
                 FileRefs.selectAll()
                     .where { FileRefs.fileHash.eq("dummy_file_hash") }
                     .map { it[FileRefs.size] }
                     .single()
             )
-            assertEquals(4234, ParityFileRefs.selectAll().map { it[ParityFileRefs.chunkSize] }.single())
-            assertEquals(1, ParityFileRefs.selectAll().count())
+            assertEquals(4234, FileDataBlockMappings.selectAll().map { it[FileDataBlockMappings.chunkSize] }.single())
+            assertEquals(1, FileDataBlockMappings.selectAll().count())
         }
     }
 
     private fun insertDemoData() {
-        ParityBlocks.insert {
+        DataBlocks.insert {
             it[hash] = "whatevs"
             it[size] = 4096
         }
@@ -44,7 +44,7 @@ class RepoTest {
             it[size] = 124123
         }
 
-        ParityFileRefs.insert {
+        FileDataBlockMappings.insert {
             it[parityBlock] = "whatevs"
             it[fromParityIdx] = 312
             it[chunkSize] = 4234
@@ -62,7 +62,7 @@ class RepoTest {
         transaction(repo.db) {
             insertDemoData()
 
-            ParityBlocks.insert {
+            DataBlocks.insert {
                 it[hash] = "unused"
                 it[size] = 8096
             }
@@ -71,7 +71,7 @@ class RepoTest {
 
         assertFails("[SQLITE_CONSTRAINT_CHECK] A CHECK constraint failed (CHECK constraint failed: fromByte_must_be_positive)") {
             transaction(repo.db) {
-                ParityFileRefs.insert {
+                FileDataBlockMappings.insert {
                     it[parityBlock] = "whatevs2"
                     it[fromParityIdx] = -1
                     it[chunkSize] = -1
