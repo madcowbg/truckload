@@ -3,7 +3,6 @@ package data.repo.sql
 import org.jetbrains.exposed.dao.id.IntIdTable
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.or
-import org.jetbrains.exposed.sql.orIfNotNull
 
 object ParitySets : IntIdTable("parity_sets") {
     val numDeviceBlocks = integer("num_device_blocks").check { it.greater(0) }
