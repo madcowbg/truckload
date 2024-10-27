@@ -29,7 +29,15 @@ class StoredRepo private constructor(val db: Database, val rootFolder: Path) {
 
             val repo = connect(repoPath)
             transaction(repo.db) {
-                SchemaUtils.create(DataBlocks, FileRefs, FileDataBlockMappings, CatalogueFile, ParityBlocks, ParitySets, ParityDataBlockMappings)
+                SchemaUtils.create(
+                    DataBlocks,
+                    FileRefs,
+                    FileDataBlockMappings,
+                    CatalogueFile,
+                    ParityBlocks,
+                    ParitySets,
+                    ParityDataBlockMappings
+                )
             }
 
             val parityBlocksPath = "$repoPath/parity_blocks"
@@ -55,8 +63,8 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem): StoredRepo {
     val paritySets = naiveParitySets(blockMapping)
 
     // insert files in catalogue
-    for (file in repo.storage) {
-        transaction(storedRepo.db) {
+    transaction(storedRepo.db) {
+        for (file in repo.storage) {
             FileRefs.insertIgnore { // ignore because two files can be in different places
                 it[hash] = file.hash.storeable
                 it[size] = file.size
@@ -70,8 +78,9 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem): StoredRepo {
     }
 
     // insert live block mapping
-    for (liveBlock in blockMapping.fileBlocks) {
-        transaction(storedRepo.db) {
+
+    transaction(storedRepo.db) {
+        for (liveBlock in blockMapping.fileBlocks) {
             if (false && !DataBlocks.selectAll().where(DataBlocks.hash.eq(liveBlock.hash.storeable)).empty()) {
                 println(
                     "duplicate parity block ${liveBlock.hash} " +
@@ -137,8 +146,5 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem): StoredRepo {
         }
     }
 
-    transaction(storedRepo.db) {
-        CatalogueFile.selectAll().forEach { println(it[CatalogueFile.path]) }
-    }
     return storedRepo
 }
