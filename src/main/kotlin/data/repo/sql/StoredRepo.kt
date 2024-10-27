@@ -21,7 +21,7 @@ class StoredRepo private constructor(val db: Database, val rootFolder: Path) {
 
             val repo = connect(repoPath)
             transaction(repo.db) {
-                SchemaUtils.create(ParityBlocks, FileRefs, ParityFileRefs)
+                SchemaUtils.create(ParityBlocks, FileRefs, ParityFileRefs, CatalogueFile)
             }
 
             val parityBlocksPath = "$repoPath/parity_blocks"

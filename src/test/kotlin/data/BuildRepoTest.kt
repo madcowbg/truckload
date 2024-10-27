@@ -35,12 +35,17 @@ class BuildRepoTest {
                     it[fileHash] = file.hash.storeable
                     it[size] = file.size
                 }
+
+                CatalogueFile.insert {
+                    it[path] = file.path
+                    it[hash] = file.hash.storeable
+                }
             }
         }
 
         for (liveBlock in blockMapping.fileBlocks) {
             transaction(storedRepo.db) {
-                if (!ParityBlocks.selectAll().where(ParityBlocks.hash.eq(liveBlock.hash.storeable)).empty()) {
+                if (false && !ParityBlocks.selectAll().where(ParityBlocks.hash.eq(liveBlock.hash.storeable)).empty()) {
                     println(
                         "duplicate parity block ${liveBlock.hash} " +
                                 "when # of stored is ${ParityBlocks.selectAll().count()}."
@@ -66,5 +71,8 @@ class BuildRepoTest {
         }
 
         storedRepo.listOfIssues().forEach { println(it.message) }
+        transaction(storedRepo.db) {
+            CatalogueFile.selectAll().forEach { println(it[CatalogueFile.path]) }
+        }
     }
 }

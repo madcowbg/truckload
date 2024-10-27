@@ -91,7 +91,8 @@ class RepoTest {
                 "ParityFileRefs ParityBlocks 256 + 4234 > size=4096",
                 "Gap between 0 and 256.",
                 "Gap between 4490 and 124123",
-                "ParityBlocks unused is unused!"
+                "ParityBlocks unused is unused!",
+                "FileRefs dummy_file_hash is unused!"
             ),
             repo.listOfIssues().map { it.message }
         )

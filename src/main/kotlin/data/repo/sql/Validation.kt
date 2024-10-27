@@ -68,6 +68,15 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
                     report(InvalidRepoData("ParityBlocks ${it[ParityBlocks.hash]} is unused!"))
                 }
             }
+
+        // validate each file ref is used for at least one file in the catalogue
+        (FileRefs leftJoin CatalogueFile)
+            .select(FileRefs.fileHash, CatalogueFile.path.count())
+            .groupBy(FileRefs.fileHash).forEach {
+            if (it[CatalogueFile.path.count()] == 0L) {
+                report(InvalidRepoData("FileRefs ${it[FileRefs.fileHash]} is unused!"))
+            }
+        }
     }
     return issues
 }
