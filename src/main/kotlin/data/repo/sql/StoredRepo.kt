@@ -6,6 +6,7 @@ import data.parity.naiveParitySets
 import data.repo.Repo
 import data.repo.readFolder
 import data.storage.DeviceFileSystem
+import data.storage.FileSystem
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -46,7 +47,7 @@ class StoredRepo private constructor(val db: Database, val rootFolder: Path) {
 
 class InvalidRepoData(val message: String)
 
-fun StoredRepo.naiveInitializeRepo(location: DeviceFileSystem): StoredRepo {
+fun StoredRepo.naiveInitializeRepo(location: FileSystem): StoredRepo {
     val storedRepo = this
 
     val repo: Repo = readFolder(location)
@@ -134,6 +135,10 @@ fun StoredRepo.naiveInitializeRepo(location: DeviceFileSystem): StoredRepo {
                 }
             }
         }
+    }
+
+    transaction(storedRepo.db) {
+        CatalogueFile.selectAll().forEach { println(it[CatalogueFile.path]) }
     }
     return storedRepo
 }

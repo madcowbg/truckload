@@ -8,7 +8,8 @@ interface Block {
 
 class FileReference(val file: FileSystem.File, val fileHash: Hash, val from: Long, val to: Long) {
     val size: Long = to - from
-    val data: ByteArray by file.dataInRange(from, to)
+    val data: ByteArray
+        get() = file.dataInRange(from, to)
 
     override fun toString(): String = "{$file from $from to $to}"
 }

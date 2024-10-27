@@ -18,19 +18,18 @@ class DeviceFileSystem(rootFolder: String) : FileSystem {
             }
 
         override val path: String = file.relativeTo(root).path
+        override val fileSize: Long = file.toPath().fileSize()
 
-        override fun fileSize(): Long = file.toPath().fileSize()
-        override fun dataInRange(from: Long, to: Long): ReadOnlyProperty<FileReference, ByteArray> =
-            ReadOnlyProperty { thisRef, property ->
-                check(from in 0..to) { "invalid range to read data from $file -> $from..$to" }
-                val size: Long = to - from
-                check(size <= Int.MAX_VALUE) { "can't read $size bytes, max is ${Int.MAX_VALUE}" }
-                val data = ByteArray(size.toInt())
-                val openedFile = RandomAccessFile(file, "r")
-                openedFile.seek(from)
-                openedFile.readFully(data)
-                return@ReadOnlyProperty data
-            }
+        override fun dataInRange(from: Long, to: Long): ByteArray {
+            check(from in 0..to) { "invalid range to read data from $file -> $from..$to" }
+            val size: Long = to - from
+            check(size <= Int.MAX_VALUE) { "can't read $size bytes, max is ${Int.MAX_VALUE}" }
+            val data = ByteArray(size.toInt())
+            val openedFile = RandomAccessFile(file, "r")
+            openedFile.seek(from)
+            openedFile.readFully(data)
+            return data
+        }
 
         override fun hashCode(): Int = file.hashCode()
         override fun equals(other: Any?): Boolean = other is DeviceFile && file == other.file

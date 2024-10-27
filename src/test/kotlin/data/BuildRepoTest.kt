@@ -1,12 +1,9 @@
 package data
 
-import data.repo.sql.CatalogueFile
 import data.repo.sql.StoredRepo
 import data.repo.sql.listOfIssues
 import data.repo.sql.naiveInitializeRepo
 import data.storage.DeviceFileSystem
-import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.transaction
 import kotlin.test.Test
 
 
@@ -24,8 +21,18 @@ class BuildRepoTest {
         storedRepo.naiveInitializeRepo(location)
 
         storedRepo.listOfIssues().forEach { println(it.message) }
-        transaction(storedRepo.db) {
-            CatalogueFile.selectAll().forEach { println(it[CatalogueFile.path]) }
-        }
+    }
+
+    @Test
+    fun `build in-mem repo`() {
+        val repoPath = "${TestDataSettings.test_path}/.experiments/test_build_inmem/.repo"
+        StoredRepo.delete(repoPath)
+        StoredRepo.init(repoPath)
+        val storedRepo: StoredRepo = StoredRepo.connect(repoPath)
+
+        val location = DummyFileSystem(nFiles = 1000, meanSize = 100, stdSize = 500, filenameLength = 100)
+
+        storedRepo.naiveInitializeRepo(location)
+        storedRepo.listOfIssues().forEach { println(it.message) }
     }
 }
