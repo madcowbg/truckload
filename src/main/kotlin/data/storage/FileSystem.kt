@@ -14,8 +14,6 @@ interface FileSystem {
 
         val path: String
 
-        @Deprecated("make sequential")
-        fun readBytes(): ByteArray
         fun fileSize(): Long
         fun dataInRange(from: Long, to: Long): ReadOnlyProperty<FileReference, ByteArray>
     }
@@ -34,8 +32,6 @@ class DeviceFileSystem(rootFolder: String) : FileSystem {
 
         override val path: String = file.relativeTo(root).path
 
-        @Deprecated("make sequential")
-        override fun readBytes(): ByteArray = file.readBytes()
         override fun fileSize(): Long = file.toPath().fileSize()
         override fun dataInRange(from: Long, to: Long): ReadOnlyProperty<FileReference, ByteArray> =
             ReadOnlyProperty { thisRef, property ->
