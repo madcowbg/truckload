@@ -3,6 +3,7 @@ package data.storage
 import java.io.File
 import java.io.IOException
 import kotlin.io.path.fileSize
+import kotlin.properties.ReadOnlyProperty
 
 interface FileSystem {
     fun resolve(path: String): File
@@ -16,6 +17,7 @@ interface FileSystem {
         @Deprecated("make sequential")
         fun readBytes(): ByteArray
         fun fileSize(): Long
+        fun dataInRange(from: Long, to: Long): ReadOnlyProperty<FileReference, ByteArray>
     }
 }
 
@@ -35,6 +37,10 @@ class DeviceFileSystem(rootFolder: String) : FileSystem {
         @Deprecated("make sequential")
         override fun readBytes(): ByteArray = file.readBytes()
         override fun fileSize(): Long = file.toPath().fileSize()
+        override fun dataInRange(from: Long, to: Long): ReadOnlyProperty<FileReference, ByteArray> =
+            ReadOnlyProperty { thisRef, property ->
+                file.readBytes().copyOfRange(from.toInt(), to.toInt()) // fixme this can only read 2GB files
+            }
 
         override fun hashCode(): Int = file.hashCode()
         override fun equals(other: Any?): Boolean = other is DeviceFile && file == other.file
@@ -46,5 +52,6 @@ class DeviceFileSystem(rootFolder: String) : FileSystem {
         return DeviceFile(root.resolve(path))
     }
 
-    override fun walk(): Sequence<FileSystem.File> = root.walk().filter { it.isFile }.map { resolve(it.relativeTo(root).path) }
+    override fun walk(): Sequence<FileSystem.File> =
+        root.walk().filter { it.isFile }.map { resolve(it.relativeTo(root).path) }
 }

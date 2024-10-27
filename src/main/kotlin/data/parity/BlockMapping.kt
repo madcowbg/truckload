@@ -23,7 +23,7 @@ class BlockMapping(val fileBlocks: List<LiveBlock>) {
 }
 
 @OptIn(ExperimentalEncodingApi::class)
-fun naiveBlockMapping(repo: Repo, blockSize: Long = 1 shl 12 /* 4KB */): BlockMapping {
+fun naiveBlockMapping(repo: Repo, blockSize: Int = 1 shl 12 /* 4KB */): BlockMapping {
     val fileBlocks: MutableList<LiveBlock> = mutableListOf()
     for (storedFile in repo.storage) {
         val splitCnt = if (storedFile.size % blockSize == 0L) {
