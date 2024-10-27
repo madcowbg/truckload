@@ -5,11 +5,7 @@ import data.storage.FileReference
 import data.storage.FileSystem
 import data.storage.Hash
 import data.storage.LiveBlock
-import java.io.File
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 
-@ExperimentalEncodingApi
 class BlockMapping(val fileBlocks: List<LiveBlock>) {
     val blocksForFile: MutableMap<FileSystem.File, ArrayList<Hash>> = mutableMapOf()
 
@@ -22,7 +18,6 @@ class BlockMapping(val fileBlocks: List<LiveBlock>) {
     }
 }
 
-@OptIn(ExperimentalEncodingApi::class)
 fun naiveBlockMapping(repo: Repo, blockSize: Int = 1 shl 12 /* 4KB */): BlockMapping {
     val fileBlocks: MutableList<LiveBlock> = mutableListOf()
     for (storedFile in repo.storage) {
