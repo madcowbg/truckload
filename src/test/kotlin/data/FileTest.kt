@@ -13,7 +13,7 @@ class FileTest {
 
     @Test
     fun `traverse project folder`() {
-        val repo: Repo = readFolder(DeviceFileSystem("./.experiments/data"))
+        val repo: Repo = readFolder(DeviceFileSystem("${TestDataSettings.test_path}/.experiments/data"))
 
         repo.dumpToConsole()
     }

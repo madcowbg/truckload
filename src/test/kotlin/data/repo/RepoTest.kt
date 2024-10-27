@@ -1,5 +1,6 @@
 package data.repo
 
+import data.TestDataSettings
 import data.repo.sql.*
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -12,7 +13,7 @@ import kotlin.test.assertFails
 class RepoTest {
     @Test
     fun `put dummy data in repo db`() {
-        val repoPath = "./.experiments/test_insert/.repo"
+        val repoPath = "${TestDataSettings.test_path}/.experiments/test_insert/.repo"
         StoredRepo.delete(repoPath)
         val repo: StoredRepo = StoredRepo.init(repoPath)
 
@@ -56,7 +57,7 @@ class RepoTest {
 
     @Test
     fun `test validation of repo data`() {
-        val repoPath = "./.experiments/test_validation/.repo"
+        val repoPath = "${TestDataSettings.test_path}/.experiments/test_validation/.repo"
         StoredRepo.delete(repoPath)
         val repo: StoredRepo = StoredRepo.init(repoPath)
         transaction(repo.db) {
