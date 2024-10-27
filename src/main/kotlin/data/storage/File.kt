@@ -1,25 +1,11 @@
 package data.storage
 
-import java.io.File
-
-interface Location {
-    fun resolve(path: String): File
-
-    class LocalFilesystem(val repoLocation: String) : Location {
-        override fun resolve(path: String): File = File(repoLocation).resolve(path)
-    }
-}
-
 class StoredFileVersion(
     val path: String,
-    val location: Location,
+    val location: FileSystem,
     val hash: Hash,
-    val size: Int // FIXME make long to support files >2GB
+    val size: Long
 ) {
-    init {
-        check(!File(path).isAbsolute) { "Path $path is not absolute" }
-    }
-
-    val fileObject: File = location.resolve(path)
+    val fileObject: FileSystem.File = location.resolve(path)
 }
 

@@ -5,6 +5,8 @@ import data.parity.naiveBlockMapping
 import data.repo.Repo
 import data.repo.readFolder
 import data.repo.sql.*
+import data.storage.DeviceFileSystem
+import data.storage.FileSystem
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.insertIgnore
@@ -19,7 +21,7 @@ class BuildRepoTest {
 
     @Test
     fun `read folder on hd and create repo`() {
-        val repo: Repo = readFolder(File("./.experiments/data"))
+        val repo: Repo = readFolder(DeviceFileSystem("./.experiments/data"))
         val blockMapping: BlockMapping = naiveBlockMapping(repo)
 //        val paritySets = naiveParitySets(blockMapping)
 

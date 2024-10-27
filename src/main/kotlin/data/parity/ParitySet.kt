@@ -14,7 +14,7 @@ class ParitySet(val liveBlocks: List<LiveBlock>) {
 
 fun xorAll(blocks: List<Block>): ByteArray {
     val blockSize = blocks.map { it.size }.distinct().single() // ensures block size is the same
-    val data = ByteArray(blockSize)
+    val data = ByteArray(blockSize.toInt())  // FIXME make long to support blocks >2GB
     blocks.forEach { block -> data.applyXor(block.data) }
     return data
 }

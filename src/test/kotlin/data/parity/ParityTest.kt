@@ -2,6 +2,7 @@ package data.parity
 
 import data.repo.Repo
 import data.repo.readFolder
+import data.storage.DeviceFileSystem
 import org.junit.jupiter.api.Test
 import java.io.File
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -10,7 +11,7 @@ import kotlin.test.assertContentEquals
 
 @OptIn(ExperimentalEncodingApi::class)
 class ParityTest {
-    private val repo: Repo = readFolder(File("./.experiments/data"))
+    private val repo: Repo = readFolder(DeviceFileSystem("./.experiments/data"))
     private val blockMapping: BlockMapping = naiveBlockMapping(repo)
     private val paritySets = naiveParitySets(blockMapping)
 
