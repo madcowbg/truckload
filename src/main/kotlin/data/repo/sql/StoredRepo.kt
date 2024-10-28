@@ -1,6 +1,5 @@
 package data.repo.sql
 
-import data.parity.BlockMapping
 import data.parity.ParitySet
 import data.parity.naiveBlockMapping
 import data.parity.naiveParitySets
@@ -18,6 +17,7 @@ import data.repo.sql.storagemedia.StorageMedia
 import data.repo.sql.storagemedia.FileLocations
 import data.storage.FileSystem
 import data.storage.Hash
+import data.storage.LiveBlock
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -74,7 +74,7 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Uni
     logger("Reading folder ...")
     val storedFiles = location.walk()
     logger("Mapping to blocks ...")
-    val blockMapping: BlockMapping = naiveBlockMapping(storedFiles)
+    val blockMapping: List<LiveBlock> = naiveBlockMapping(storedFiles.iterator())
     logger("Calculating parity sets ...")
     val paritySets = naiveParitySets(blockMapping)
 
@@ -108,10 +108,10 @@ fun insertFilesInCatalogue(storedRepo: StoredRepo, storedFiles: Sequence<FileSys
     }
 }
 
-fun insertLiveBlockMapping(storedRepo: StoredRepo, blockMapping: BlockMapping) {
+fun insertLiveBlockMapping(storedRepo: StoredRepo, blockMapping: List<LiveBlock>) {
     // insert live block mapping
     transaction(storedRepo.db) {
-        for (liveBlock in blockMapping.fileBlocks) {
+        for (liveBlock in blockMapping) {
             if (false && !DataBlocks.selectAll().where(DataBlocks.hash.eq(liveBlock.hash.storeable)).empty()) {
                 println(
                     "duplicate parity block ${liveBlock.hash} " +

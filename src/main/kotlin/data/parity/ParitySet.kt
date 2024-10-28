@@ -26,9 +26,9 @@ private fun ByteArray.applyXor(other: ByteArray) {
 }
 
 @OptIn(ExperimentalEncodingApi::class)
-fun naiveParitySets(blockMapping: BlockMapping): List<ParitySet> {
+fun naiveParitySets(blockMapping: List<LiveBlock>): List<ParitySet> {
     val paritySetSize = 4
-    val liveBlocks = blockMapping.fileBlocks.sortedBy { it.hash } // fixme stupid way to sort...
+    val liveBlocks = blockMapping.sortedBy { it.hash } // fixme stupid way to sort...
     val setsCnt = (liveBlocks.size - 1) / paritySetSize + 1
     val paritySets = (0 until setsCnt).map {
         ParitySet(

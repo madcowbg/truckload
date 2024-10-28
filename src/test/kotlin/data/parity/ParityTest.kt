@@ -2,6 +2,7 @@ package data.parity
 
 import perftest.TestDataSettings
 import data.storage.DeviceFileSystem
+import data.storage.LiveBlock
 import org.junit.jupiter.api.Test
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.test.assertContentEquals
@@ -11,18 +12,14 @@ import kotlin.test.assertContentEquals
 class ParityTest {
     private val storedFiles =
         DeviceFileSystem("${TestDataSettings.test_path}/.experiments/data").walk()
-    private val blockMapping: BlockMapping = naiveBlockMapping(storedFiles)
+    private val blockMapping: List<LiveBlock> = naiveBlockMapping(storedFiles.iterator())
     private val paritySets = naiveParitySets(blockMapping)
 
     @Test
     fun `load from filesystem and dump them`() {
-        println("Loaded ${blockMapping.fileBlocks.size} blocks on filesystem")
-        println("file to blocks:")
-        for ((file, blocks) in blockMapping.blocksForFile) {
-            println("$file -> ${blocks.size}: $blocks")
-        }
+        println("Loaded ${blockMapping.size} blocks on filesystem")
         println("block to file:")
-        for (fileBlock in blockMapping.fileBlocks) {
+        for (fileBlock in blockMapping) {
             println("${fileBlock.hash} ${fileBlock.files}")
         }
     }
