@@ -18,6 +18,7 @@ import data.repo.sql.storagemedia.ParityLocations
 import data.repo.sql.storagemedia.StorageMedia
 import data.repo.sql.storagemedia.FileLocations
 import data.storage.FileSystem
+import data.storage.Hash
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -149,8 +150,15 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Uni
                 println("block file $parityBlockFile already exists") // fixme at least check digests maybe?
             }
 
+            val paritySetHash = Hash.digest(
+                (paritySet.liveBlocks.map { it.hash } + listOf(paritySet.parityBlock.hash))
+                    .joinToString("|")
+                    .toByteArray()
+            )
+
             // define the parity set
-            val paritySetId = ParitySets.insertAndGetId {
+            ParitySets.insertIgnore {
+                it[hash] = paritySetHash.storeable
                 it[numDeviceBlocks] = paritySet.liveBlocks.size
                 it[parityPHash] = paritySet.parityBlock.hash.storeable
                 it[parityType] = ParityType.RAID5
@@ -158,8 +166,8 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Uni
 
             for (idx in paritySet.liveBlocks.indices) {
                 val liveBlock = paritySet.liveBlocks[idx]
-                ParityDataBlockMappings.insert {
-                    it[ParityDataBlockMappings.paritySetId] = paritySetId
+                ParityDataBlockMappings.insertIgnore {
+                    it[paritySetId] = paritySetHash.storeable
                     it[indexInSet] = idx
                     it[dataBlockHash] = liveBlock.hash.storeable
                 }

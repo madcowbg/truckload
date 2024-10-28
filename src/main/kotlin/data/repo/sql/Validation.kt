@@ -87,16 +87,18 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
 
         // validate parity data block mappings are 0..numDeviceBlocksInSet
         ParitySets.selectAll().forEach { paritySet ->
-            val id = paritySet[ParitySets.id]
+            val paritySetHash = paritySet[ParitySets.hash]
             val numDeviceBlocksInSet = paritySet[ParitySets.numDeviceBlocks]
-            val dataBlockIdxs = ParityDataBlockMappings.selectAll().where(ParityDataBlockMappings.paritySetId.eq(id))
-                .map { it[ParityDataBlockMappings.indexInSet] }.sorted()
+            val dataBlockIdxs =
+                ParityDataBlockMappings.selectAll()
+                    .where(ParityDataBlockMappings.paritySetId.eq(paritySetHash))
+                    .map { it[ParityDataBlockMappings.indexInSet] }.sorted()
 
             (0 until numDeviceBlocksInSet).filter { it !in dataBlockIdxs }.forEach {
-                report(InvalidRepoData("Data block index=$it is not available in ParityDataBlockMappings[$id]"))
+                report(InvalidRepoData("Data block index=$it is not available in ParityDataBlockMappings[$paritySetHash]"))
             }
             dataBlockIdxs.filter { it !in 0 until numDeviceBlocksInSet }.forEach {
-                report(InvalidRepoData("ParityDataBlockMappings[$id] block index=$it is outside accepted indexes 0..${numDeviceBlocksInSet}"))
+                report(InvalidRepoData("ParityDataBlockMappings[$paritySetHash] block index=$it is outside accepted indexes 0..${numDeviceBlocksInSet}"))
             }
         }
     }

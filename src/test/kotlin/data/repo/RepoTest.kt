@@ -85,8 +85,8 @@ class RepoTest {
                 it[size] = 4093
             }
 
-
-            val setId = ParitySets.insertAndGetId {
+            ParitySets.insert {
+                it[hash] = "some_parity_set_hash"
                 it[parityType] = ParityType.RAID6
                 it[numDeviceBlocks] = 2
                 it[parityPHash] = "some_parity"
@@ -96,7 +96,7 @@ class RepoTest {
             ParityDataBlockMappings.insert {
                 it[dataBlockHash] = "whatevs"
                 it[indexInSet] = 2
-                it[paritySetId] = setId
+                it[paritySetId] = "some_parity_set_hash"
             }
         }
 
@@ -124,9 +124,9 @@ class RepoTest {
                 "Gap between 4490 and 124123",
                 "DataBlocks unused is unused!",
                 "FileRefs dummy_file_hash is unused!",
-                "Data block index=0 is not available in ParityDataBlockMappings[1]",
-                "Data block index=1 is not available in ParityDataBlockMappings[1]",
-                "ParityDataBlockMappings[1] block index=2 is outside accepted indexes 0..2"
+                "Data block index=0 is not available in ParityDataBlockMappings[some_parity_set_hash]",
+                "Data block index=1 is not available in ParityDataBlockMappings[some_parity_set_hash]",
+                "ParityDataBlockMappings[some_parity_set_hash] block index=2 is outside accepted indexes 0..2"
             ),
             repo.listOfIssues().map { it.message }
         )
