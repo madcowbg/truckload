@@ -4,20 +4,19 @@ import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
 import kotlin.io.path.fileSize
-import kotlin.properties.ReadOnlyProperty
 
 class DeviceFileSystem(rootFolder: String) : FileSystem {
     private val root: File = File(rootFolder)
+    private val allFiles = mutableMapOf<String, DeviceFile>()
 
-    inner class DeviceFile(private val file: File) : FileSystem.File {
-        override val hash: Hash?
-            get() = try {
-                Hash.digest(file.readBytes())
-            } catch (e: IOException) {
-                null
-            }
+    inner class DeviceFile(private val file: File, override val hash: Hash) : FileSystem.File {
+
+        init {
+            check(file.isAbsolute) { "File $file is not absolute!" }
+        }
 
         override val path: String = file.relativeTo(root).path
+
         override val fileSize: Long = file.toPath().fileSize()
 
         override fun dataInRange(from: Long, to: Long): ByteArray {
@@ -37,10 +36,18 @@ class DeviceFileSystem(rootFolder: String) : FileSystem {
 
 
     override fun resolve(path: String): FileSystem.File {
-        check(!File(path).isAbsolute) { "Path $path is not absolute" }
-        return DeviceFile(root.resolve(path))
+        return allFiles.computeIfAbsent(path) { root.resolve(File(path)).let { DeviceFile(it, it.digest()!!) } }
     }
 
     override fun walk(): Sequence<FileSystem.File> =
-        root.walk().filter { it.isFile }.map { resolve(it.relativeTo(root).path) }
+        root.walk().filter { it.isFile }.mapNotNull { file ->
+            val hash = file.digest() ?: return@mapNotNull null
+            allFiles.computeIfAbsent(file.path) { DeviceFile(file, hash) }
+        }
+}
+
+private fun File.digest(): Hash? = try {
+    Hash.digest(this.readBytes())
+} catch (e: IOException) {
+    null
 }

@@ -8,7 +8,7 @@ interface FileSystem {
     fun walk(): Sequence<File>
 
     interface File {
-        val hash: Hash?
+        val hash: Hash
         val path: String
         val fileSize: Long
         fun dataInRange(from: Long, to: Long): ByteArray

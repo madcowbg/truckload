@@ -1,6 +1,7 @@
 package data.repo.sql
 
 import data.parity.BlockMapping
+import data.parity.ParitySet
 import data.parity.naiveBlockMapping
 import data.parity.naiveParitySets
 import data.repo.Repo
@@ -71,8 +72,6 @@ class StoredRepo private constructor(val db: Database, val rootFolder: Path) {
 class InvalidRepoData(val message: String)
 
 fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Unit): StoredRepo {
-    val storedRepo = this
-
     logger("Reading folder ...")
     val repo: Repo = readFolder(location)
     logger("Mapping to blocks ...")
@@ -81,7 +80,19 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Uni
     val paritySets = naiveParitySets(blockMapping)
 
     logger("insert files in catalogue...")
-    // insert files in catalogue
+    insertFilesInCatalogue(this, repo)
+
+    logger("insert live block mapping...")
+    insertLiveBlockMapping(this, blockMapping)
+
+    logger("insert computed parity sets...")
+    insertComputedParitySets(this, paritySets)
+
+    logger("done init!")
+    return this
+}
+
+fun insertFilesInCatalogue(storedRepo: StoredRepo, repo: Repo) {
     transaction(storedRepo.db) {
         for (file in repo.storage) {
             FileRefs.insertIgnore { // ignore because two files can be in different places
@@ -96,9 +107,9 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Uni
             }
         }
     }
+}
 
-
-    logger("insert live block mapping...")
+fun insertLiveBlockMapping(storedRepo: StoredRepo, blockMapping: BlockMapping) {
     // insert live block mapping
     transaction(storedRepo.db) {
         for (liveBlock in blockMapping.fileBlocks) {
@@ -126,9 +137,9 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Uni
 
         }
     }
+}
 
-    logger("insert computed parity sets...")
-    // insert computed parity sets
+fun insertComputedParitySets(storedRepo: StoredRepo, paritySets: List<ParitySet>) {
     transaction(storedRepo.db) {
         for (paritySet in paritySets) {
             val parityBlock = paritySet.parityBlock
@@ -174,6 +185,5 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Uni
             }
         }
     }
-    logger("done init!")
-    return storedRepo
 }
+
