@@ -1,5 +1,6 @@
-package data.repo.sql
+package data.repo.sql.storagemedia
 
+import data.repo.sql.parity.ParityBlocks
 import org.jetbrains.exposed.sql.Table
 
 object ParityLocations: Table("parity_locations") {

@@ -1,4 +1,4 @@
-package data.repo.sql
+package data.repo.sql.datablocks
 
 import org.jetbrains.exposed.sql.Table
 

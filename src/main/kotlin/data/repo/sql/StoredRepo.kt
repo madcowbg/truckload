@@ -5,6 +5,17 @@ import data.parity.naiveBlockMapping
 import data.parity.naiveParitySets
 import data.repo.Repo
 import data.repo.readFolder
+import data.repo.sql.catalogue.FileVersions
+import data.repo.sql.datablocks.DataBlocks
+import data.repo.sql.datablocks.FileDataBlockMappings
+import data.repo.sql.datablocks.FileRefs
+import data.repo.sql.parity.ParityBlocks
+import data.repo.sql.parity.ParityDataBlockMappings
+import data.repo.sql.parity.ParitySets
+import data.repo.sql.parity.ParityType
+import data.repo.sql.storagemedia.ParityLocations
+import data.repo.sql.storagemedia.StorageMedia
+import data.repo.sql.storagemedia.FileLocations
 import data.storage.FileSystem
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
@@ -37,7 +48,7 @@ class StoredRepo private constructor(val db: Database, val rootFolder: Path) {
                     ParitySets,
                     ParityDataBlockMappings,
                     FileVersions,
-                    StorageMediaFileLocations,
+                    FileLocations,
                     ParityLocations,
                     StorageMedia
                 )

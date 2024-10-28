@@ -1,5 +1,6 @@
-package data.repo.sql
+package data.repo.sql.parity
 
+import data.repo.sql.datablocks.DataBlocks
 import org.jetbrains.exposed.sql.Table
 
 object ParityDataBlockMappings: Table("parity_data_block_mappings") {

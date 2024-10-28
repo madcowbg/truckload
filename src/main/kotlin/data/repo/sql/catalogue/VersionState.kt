@@ -1,4 +1,4 @@
-package data.repo.sql
+package data.repo.sql.catalogue
 
 enum class VersionState {
     EXISTING,

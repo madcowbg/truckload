@@ -2,6 +2,13 @@ package data.repo
 
 import perftest.TestDataSettings
 import data.repo.sql.*
+import data.repo.sql.datablocks.DataBlocks
+import data.repo.sql.datablocks.FileDataBlockMappings
+import data.repo.sql.datablocks.FileRefs
+import data.repo.sql.parity.ParityBlocks
+import data.repo.sql.parity.ParityDataBlockMappings
+import data.repo.sql.parity.ParitySets
+import data.repo.sql.parity.ParityType
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.transactions.transaction
 import kotlin.test.Test

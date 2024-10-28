@@ -1,4 +1,4 @@
-package data.repo.sql
+package data.repo.sql.storagemedia
 
 import org.jetbrains.exposed.sql.Table
 

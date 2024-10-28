@@ -1,5 +1,6 @@
-package data.repo.sql
+package data.repo.sql.catalogue
 
+import data.repo.sql.datablocks.FileRefs
 import org.jetbrains.exposed.sql.Table
 
 object FileVersions : Table("file_versions"){

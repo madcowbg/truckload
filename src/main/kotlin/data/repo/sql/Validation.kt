@@ -1,5 +1,10 @@
 package data.repo.sql
 
+import data.repo.sql.datablocks.DataBlocks
+import data.repo.sql.datablocks.FileDataBlockMappings
+import data.repo.sql.datablocks.FileRefs
+import data.repo.sql.parity.ParityDataBlockMappings
+import data.repo.sql.parity.ParitySets
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.count
 import org.jetbrains.exposed.sql.selectAll

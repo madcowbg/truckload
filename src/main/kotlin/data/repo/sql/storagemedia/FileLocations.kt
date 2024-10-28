@@ -1,8 +1,9 @@
-package data.repo.sql
+package data.repo.sql.storagemedia
 
+import data.repo.sql.datablocks.FileRefs
 import org.jetbrains.exposed.sql.Table
 
-object StorageMediaFileLocations: Table("storage_media_file_locations") {
+object FileLocations: Table("storage_media_file_locations") {
     val storageMedia = reference("storage_media", StorageMedia.guid)
     val path = text("path")
 
