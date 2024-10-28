@@ -1,7 +1,7 @@
 package data
 
-import data.repo.sql.CatalogueFile
 import data.repo.sql.StoredRepo
+import data.repo.sql.catalogue.FileVersions
 import data.repo.sql.listOfIssues
 import data.repo.sql.naiveInitializeRepo
 import data.storage.DeviceFileSystem
@@ -29,7 +29,7 @@ class BuildRepoTest {
 
         storedRepo.listOfIssues().forEach { println(it.message) }
         transaction(storedRepo.db) {
-            CatalogueFile.selectAll().forEach { println(it[CatalogueFile.path]) }
+            FileVersions.selectAll().forEach { println(it[FileVersions.path]) }
         }
     }
 

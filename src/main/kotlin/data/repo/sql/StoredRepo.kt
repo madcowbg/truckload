@@ -6,6 +6,7 @@ import data.parity.naiveParitySets
 import data.repo.Repo
 import data.repo.readFolder
 import data.repo.sql.catalogue.FileVersions
+import data.repo.sql.catalogue.VersionState
 import data.repo.sql.datablocks.DataBlocks
 import data.repo.sql.datablocks.FileDataBlockMappings
 import data.repo.sql.datablocks.FileRefs
@@ -43,7 +44,6 @@ class StoredRepo private constructor(val db: Database, val rootFolder: Path) {
                     DataBlocks,
                     FileRefs,
                     FileDataBlockMappings,
-                    CatalogueFile,
                     ParityBlocks,
                     ParitySets,
                     ParityDataBlockMappings,
@@ -88,9 +88,10 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Uni
                 it[size] = file.size
             }
 
-            CatalogueFile.insert {
+            FileVersions.insert {
                 it[path] = file.path
                 it[hash] = file.hash.storeable
+                it[state] = VersionState.EXISTING
             }
         }
     }

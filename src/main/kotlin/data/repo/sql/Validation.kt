@@ -1,5 +1,6 @@
 package data.repo.sql
 
+import data.repo.sql.catalogue.FileVersions
 import data.repo.sql.datablocks.DataBlocks
 import data.repo.sql.datablocks.FileDataBlockMappings
 import data.repo.sql.datablocks.FileRefs
@@ -76,10 +77,10 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
             }
 
         // validate each file ref is used for at least one file in the catalogue
-        (FileRefs leftJoin CatalogueFile)
-            .select(FileRefs.hash, CatalogueFile.path.count())
+        (FileRefs leftJoin FileVersions)
+            .select(FileRefs.hash, FileVersions.path.count())
             .groupBy(FileRefs.hash).forEach {
-                if (it[CatalogueFile.path.count()] == 0L) {
+                if (it[FileVersions.path.count()] == 0L) {
                     report(InvalidRepoData("FileRefs ${it[FileRefs.hash]} is unused!"))
                 }
             }
