@@ -1,14 +1,8 @@
-@file:OptIn(ExperimentalEncodingApi::class)
+import data.storage.StoredFileVersion
 
-import data.repo.Repo
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
-
-fun Repo.dumpToConsole() {
+fun List<StoredFileVersion>.dumpToConsole() {
     println("DUMPING REPO")
-    println("Files:")
-    files.forEach { println("[${it.logicalPath}] ${it.hash}") }
     println("Storage:")
-    storage.forEach { version -> println("${version.hash} ${version.location} ${version.path}") }
+    forEach { version -> println("${version.hash} ${version.location} ${version.path}") }
     println("END DUMPING REPO")
 }

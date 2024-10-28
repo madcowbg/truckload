@@ -4,8 +4,7 @@ import data.parity.BlockMapping
 import data.parity.ParitySet
 import data.parity.naiveBlockMapping
 import data.parity.naiveParitySets
-import data.repo.Repo
-import data.repo.readFolder
+import data.storage.readStoredFileVersions
 import data.repo.sql.catalogue.FileVersions
 import data.repo.sql.catalogue.VersionState
 import data.repo.sql.datablocks.DataBlocks
@@ -20,6 +19,7 @@ import data.repo.sql.storagemedia.StorageMedia
 import data.repo.sql.storagemedia.FileLocations
 import data.storage.FileSystem
 import data.storage.Hash
+import data.storage.StoredFileVersion
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -73,14 +73,14 @@ class InvalidRepoData(val message: String)
 
 fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Unit): StoredRepo {
     logger("Reading folder ...")
-    val repo: Repo = readFolder(location)
+    val storedFiles = readStoredFileVersions(location)
     logger("Mapping to blocks ...")
-    val blockMapping: BlockMapping = naiveBlockMapping(repo)
+    val blockMapping: BlockMapping = naiveBlockMapping(storedFiles)
     logger("Calculating parity sets ...")
     val paritySets = naiveParitySets(blockMapping)
 
     logger("insert files in catalogue...")
-    insertFilesInCatalogue(this, repo)
+    insertFilesInCatalogue(this, storedFiles)
 
     logger("insert live block mapping...")
     insertLiveBlockMapping(this, blockMapping)
@@ -92,9 +92,9 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Uni
     return this
 }
 
-fun insertFilesInCatalogue(storedRepo: StoredRepo, repo: Repo) {
+fun insertFilesInCatalogue(storedRepo: StoredRepo, storedFiles: List<StoredFileVersion>) {
     transaction(storedRepo.db) {
-        for (file in repo.storage) {
+        for (file in storedFiles) {
             FileRefs.insertIgnore { // ignore because two files can be in different places
                 it[hash] = file.hash.storeable
                 it[size] = file.size

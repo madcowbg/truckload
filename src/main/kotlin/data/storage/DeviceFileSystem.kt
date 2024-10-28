@@ -51,3 +51,13 @@ private fun File.digest(): Hash? = try {
 } catch (e: IOException) {
     null
 }
+
+fun readStoredFileVersions(rootLocation: FileSystem) =
+    rootLocation.walk().map {
+        StoredFileVersion(
+            size = it.fileSize,
+            hash = it.hash,
+            path = it.path,
+            location = rootLocation
+        )
+    }.toList()

@@ -1,10 +1,6 @@
 package data.parity
 
-import data.repo.Repo
-import data.storage.FileReference
-import data.storage.FileSystem
-import data.storage.Hash
-import data.storage.LiveBlock
+import data.storage.*
 
 class BlockMapping(val fileBlocks: List<LiveBlock>) {
     val blocksForFile: MutableMap<FileSystem.File, ArrayList<Hash>> = mutableMapOf()
@@ -18,9 +14,9 @@ class BlockMapping(val fileBlocks: List<LiveBlock>) {
     }
 }
 
-fun naiveBlockMapping(repo: Repo, blockSize: Int = 1 shl 12 /* 4KB */): BlockMapping {
+fun naiveBlockMapping(storage: List<StoredFileVersion>, blockSize: Int = 1 shl 12 /* 4KB */): BlockMapping {
     val fileBlocks: MutableList<LiveBlock> = mutableListOf()
-    for (storedFile in repo.storage) {
+    for (storedFile in storage) {
         val splitCnt = if (storedFile.size % blockSize == 0L) {
             storedFile.size / blockSize
         } else {
