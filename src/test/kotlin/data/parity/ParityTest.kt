@@ -1,6 +1,5 @@
 package data.parity
 
-import data.storage.readStoredFileVersions
 import perftest.TestDataSettings
 import data.storage.DeviceFileSystem
 import org.junit.jupiter.api.Test
@@ -10,7 +9,8 @@ import kotlin.test.assertContentEquals
 
 @OptIn(ExperimentalEncodingApi::class)
 class ParityTest {
-    private val storedFiles = readStoredFileVersions(DeviceFileSystem("${TestDataSettings.test_path}/.experiments/data"))
+    private val storedFiles =
+        DeviceFileSystem("${TestDataSettings.test_path}/.experiments/data").walk()
     private val blockMapping: BlockMapping = naiveBlockMapping(storedFiles)
     private val paritySets = naiveParitySets(blockMapping)
 

@@ -12,7 +12,8 @@ class DummyFileSystem(
     filenameLength: Int = 100,
     seed: Long = 0
 ) : FileSystem {
-    class DummyFile(override val path: String, override val fileSize: Long) : FileSystem.File {
+    inner class DummyFile(override val path: String, override val fileSize: Long) : FileSystem.File {
+        override val location: FileSystem = this@DummyFileSystem
         override val hash: Hash by lazy { Hash(dataInRange(0, fileSize)) }
 
 //        private val data: ByteArray
@@ -24,11 +25,11 @@ class DummyFileSystem(
 //            }
 
         private val data: ByteArray by lazy {
-                val generator = Random(path.hashCode())
-                val data = ByteArray(fileSize.toInt())
-                generator.nextBytes(data)
-                return@lazy data
-            }
+            val generator = Random(path.hashCode())
+            val data = ByteArray(fileSize.toInt())
+            generator.nextBytes(data)
+            return@lazy data
+        }
 
         override fun dataInRange(from: Long, to: Long): ByteArray = data.sliceArray(from.toInt() until to.toInt())
     }

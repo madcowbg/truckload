@@ -14,21 +14,21 @@ class BlockMapping(val fileBlocks: List<LiveBlock>) {
     }
 }
 
-fun naiveBlockMapping(storage: List<StoredFileVersion>, blockSize: Int = 1 shl 12 /* 4KB */): BlockMapping {
+fun naiveBlockMapping(storage: Sequence<FileSystem.File>, blockSize: Int = 1 shl 12 /* 4KB */): BlockMapping {
     val fileBlocks: MutableList<LiveBlock> = mutableListOf()
     for (storedFile in storage) {
-        val splitCnt = if (storedFile.size % blockSize == 0L) {
-            storedFile.size / blockSize
+        val splitCnt = if (storedFile.fileSize % blockSize == 0L) {
+            storedFile.fileSize / blockSize
         } else {
-            (storedFile.size / blockSize) + 1
+            (storedFile.fileSize / blockSize) + 1
         }
 
         for (idx in (0 until splitCnt)) {
             val ref = FileReference(
-                storedFile.fileObject,
+                storedFile,
                 storedFile.hash,
                 idx * blockSize,
-                ((1 + idx) * blockSize).coerceAtMost(storedFile.size)
+                ((1 + idx) * blockSize).coerceAtMost(storedFile.fileSize)
             )
             val block = LiveBlock(blockSize, listOf(ref))
 

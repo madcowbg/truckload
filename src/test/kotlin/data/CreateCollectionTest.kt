@@ -3,7 +3,6 @@ package data
 import data.parity.BlockMapping
 import data.parity.naiveBlockMapping
 import data.parity.naiveParitySets
-import data.storage.readStoredFileVersions
 import data.repo.sql.*
 import data.storage.DeviceFileSystem
 import org.junit.jupiter.api.Test
@@ -21,7 +20,7 @@ class CreateCollectionTest {
         val currentCollectionFilesLocation = DeviceFileSystem("${TestDataSettings.test_path}/.experiments/data")
 
         println("Reading folder ...")
-        val storedFiles = readStoredFileVersions(currentCollectionFilesLocation)
+        val storedFiles = currentCollectionFilesLocation.walk()
         println("Mapping to blocks ...")
         val blockMapping: BlockMapping = naiveBlockMapping(storedFiles)
 

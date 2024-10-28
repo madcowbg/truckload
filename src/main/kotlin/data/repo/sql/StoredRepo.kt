@@ -4,7 +4,6 @@ import data.parity.BlockMapping
 import data.parity.ParitySet
 import data.parity.naiveBlockMapping
 import data.parity.naiveParitySets
-import data.storage.readStoredFileVersions
 import data.repo.sql.catalogue.FileVersions
 import data.repo.sql.catalogue.VersionState
 import data.repo.sql.datablocks.DataBlocks
@@ -19,13 +18,13 @@ import data.repo.sql.storagemedia.StorageMedia
 import data.repo.sql.storagemedia.FileLocations
 import data.storage.FileSystem
 import data.storage.Hash
-import data.storage.StoredFileVersion
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.io.FileOutputStream
 import java.nio.file.Path
 import kotlin.io.path.*
+import kotlin.sequences.Sequence
 
 class StoredRepo private constructor(val db: Database, val rootFolder: Path) {
 
@@ -73,7 +72,7 @@ class InvalidRepoData(val message: String)
 
 fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Unit): StoredRepo {
     logger("Reading folder ...")
-    val storedFiles = readStoredFileVersions(location)
+    val storedFiles = location.walk()
     logger("Mapping to blocks ...")
     val blockMapping: BlockMapping = naiveBlockMapping(storedFiles)
     logger("Calculating parity sets ...")
@@ -92,12 +91,12 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Uni
     return this
 }
 
-fun insertFilesInCatalogue(storedRepo: StoredRepo, storedFiles: List<StoredFileVersion>) {
+fun insertFilesInCatalogue(storedRepo: StoredRepo, storedFiles: Sequence<FileSystem.File>) {
     transaction(storedRepo.db) {
         for (file in storedFiles) {
             FileRefs.insertIgnore { // ignore because two files can be in different places
                 it[hash] = file.hash.storeable
-                it[size] = file.size
+                it[size] = file.fileSize
             }
 
             FileVersions.insert {

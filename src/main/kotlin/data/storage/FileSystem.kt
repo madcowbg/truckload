@@ -8,6 +8,7 @@ interface FileSystem {
     fun walk(): Sequence<File>
 
     interface File {
+        val location: FileSystem
         val hash: Hash
         val path: String
         val fileSize: Long

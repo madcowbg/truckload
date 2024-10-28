@@ -1,6 +1,6 @@
-import data.storage.StoredFileVersion
+import data.storage.FileSystem
 
-fun List<StoredFileVersion>.dumpToConsole() {
+fun Sequence<FileSystem.File>.dumpToConsole() {
     println("DUMPING REPO")
     println("Storage:")
     forEach { version -> println("${version.hash} ${version.location} ${version.path}") }

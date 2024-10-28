@@ -15,6 +15,8 @@ class DeviceFileSystem(rootFolder: String) : FileSystem {
             check(file.isAbsolute) { "File $file is not absolute!" }
         }
 
+        override val location: FileSystem = this@DeviceFileSystem
+
         override val path: String = file.relativeTo(root).path
 
         override val fileSize: Long = file.toPath().fileSize()
@@ -52,12 +54,3 @@ private fun File.digest(): Hash? = try {
     null
 }
 
-fun readStoredFileVersions(rootLocation: FileSystem) =
-    rootLocation.walk().map {
-        StoredFileVersion(
-            size = it.fileSize,
-            hash = it.hash,
-            path = it.path,
-            location = rootLocation
-        )
-    }.toList()
