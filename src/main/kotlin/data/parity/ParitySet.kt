@@ -1,21 +1,18 @@
 package data.parity
 
-import data.storage.Block
 import data.storage.LiveBlock
-import data.storage.MemoryBlock
 import data.storage.ParityBlock
 import kotlin.experimental.xor
-import kotlin.io.encoding.ExperimentalEncodingApi
 
-
+@Deprecated("remove and rename file")
 class ParitySet(val liveBlocks: List<LiveBlock>) {
-    val parityBlock: ParityBlock = ParityBlock(xorAll(liveBlocks))
+    val parityBlock: ParityBlock = ParityBlock(xorAll(liveBlocks.map { it.data }))
 }
 
-fun xorAll(blocks: List<Block>): ByteArray {
+fun xorAll(blocks: List<ByteArray>): ByteArray {
     val blockSize = blocks.map { it.size }.distinct().single() // ensures block size is the same
     val data = ByteArray(blockSize)
-    blocks.forEach { block -> data.applyXor(block.data) }
+    blocks.forEach { block -> data.applyXor(block) }
     return data
 }
 
@@ -25,21 +22,5 @@ private fun ByteArray.applyXor(other: ByteArray) {
     }
 }
 
-@OptIn(ExperimentalEncodingApi::class)
-fun naiveParitySets(blockMapping: List<LiveBlock>): List<ParitySet> {
-    val paritySetSize = 4
-    val liveBlocks = blockMapping.sortedBy { it.hash } // fixme stupid way to sort...
-    val setsCnt = (liveBlocks.size - 1) / paritySetSize + 1
-    val paritySets = (0 until setsCnt).map {
-        ParitySet(
-            liveBlocks = liveBlocks.subList(
-                it * paritySetSize,
-                ((1 + it) * paritySetSize).coerceAtMost(liveBlocks.size)
-            )
-        )
-    }
-    return paritySets
-}
-
-fun restoreBlock(partialSet: List<Block>): MemoryBlock =
-    MemoryBlock(xorAll(partialSet))
+fun restoreBlock(partialSet: List<ByteArray>): ByteArray =
+    xorAll(partialSet)

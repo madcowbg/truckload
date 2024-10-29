@@ -1,5 +1,6 @@
 package data.parity
 
+import data.repo.sql.naiveParitySets
 import perftest.TestDataSettings
 import data.storage.DeviceFileSystem
 import data.storage.LiveBlock
@@ -40,17 +41,17 @@ class ParityTest {
                 println("restoring ${paritySet.parityBlock.hash} for idx $i")
                 val partialSet =
                     paritySet.liveBlocks.subList(0, i) + paritySet.liveBlocks.subList(i + 1, paritySet.liveBlocks.size)
-                val restoredBlock = restoreBlock(partialSet + listOf(paritySet.parityBlock))
+                val restoredBlock = restoreBlock((partialSet + listOf(paritySet.parityBlock)).map { it.data })
 
                 assertContentEquals(
                     paritySet.liveBlocks[i].data,
-                    restoredBlock.data,
+                    restoredBlock,
                     "restore unsuccessful at idx $i"
                 )
             }
             assertContentEquals(
                 paritySet.parityBlock.data,
-                restoreBlock(paritySet.liveBlocks).data,
+                restoreBlock(paritySet.liveBlocks.map {it.data}),
                 "restore unsuccessful for parity block"
             )
         }

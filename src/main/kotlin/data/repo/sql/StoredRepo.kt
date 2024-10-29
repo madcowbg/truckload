@@ -2,7 +2,6 @@ package data.repo.sql
 
 import data.parity.ParitySet
 import data.parity.naiveBlockMapping
-import data.parity.naiveParitySets
 import data.repo.sql.catalogue.FileVersions
 import data.repo.sql.catalogue.VersionState
 import data.repo.sql.datablocks.DataBlocks
@@ -89,6 +88,21 @@ fun StoredRepo.naiveInitializeRepo(location: ReadonlyFileSystem, logger: (String
 
     logger("done init!")
     return this
+}
+
+fun naiveParitySets(blockMapping: List<LiveBlock>): List<ParitySet> {
+    val paritySetSize = 4
+    val liveBlocks = blockMapping.sortedBy { it.hash } // fixme stupid way to sort...
+    val setsCnt = (liveBlocks.size - 1) / paritySetSize + 1
+    val paritySets = (0 until setsCnt).map {
+        ParitySet(
+            liveBlocks = liveBlocks.subList(
+                it * paritySetSize,
+                ((1 + it) * paritySetSize).coerceAtMost(liveBlocks.size)
+            )
+        )
+    }
+    return paritySets
 }
 
 fun insertFilesInCatalogue(storedRepo: StoredRepo, storedFiles: Sequence<ReadonlyFileSystem.File>) {
