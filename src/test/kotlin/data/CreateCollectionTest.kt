@@ -2,8 +2,11 @@ package data
 
 import data.repo.sql.StoredRepo
 import data.repo.sql.catalogue.FileVersions
+import data.repo.sql.datablocks.FileDataBlockMappings
 import data.repo.sql.listOfIssues
+import data.repo.sql.parity.ParityDataBlockMappings
 import data.repo.sql.storagemedia.FileLocations
+import data.repo.sql.storagemedia.ParityLocations
 import data.repo.sql.storagemedia.StorageMedias
 import data.storage.DeviceFileSystem
 import data.storage.ReadonlyFileSystem
@@ -14,6 +17,7 @@ import org.junit.jupiter.api.Test
 import perftest.TestDataSettings
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class CreateCollectionTest {
 
@@ -41,14 +45,46 @@ class CreateCollectionTest {
             println(issue)
         }
 
-        val newLocation = WritableDeviceFileSystem("$testPath/restore_from_full/")
+        // do full restore
+        val newFromFullRestoreLocation = WritableDeviceFileSystem("$testPath/restore_from_full/")
         val restoreDevices = (0 until numPartitions)
             .associateWith { DeviceFileSystem("$testPath/Device ${it}/") }
-        restoreCollection(collectionRepo, restoreDevices, newLocation)
+        restoreCollection(collectionRepo, restoreDevices, newFromFullRestoreLocation)
+
+        assertEqualsFileSystem(newFromFullRestoreLocation, currentCollectionFilesLocation)
+
+        // do partial restore
+        val newFromPartialRestoreLocation = WritableDeviceFileSystem("$testPath/restore_from_partial/")
+        val restorePartialDevices = (1 until numPartitions)
+            .associateWith { DeviceFileSystem("$testPath/Device ${it}/") }
+        restoreCollection(collectionRepo, restorePartialDevices, newFromPartialRestoreLocation)
+
+        assertEqualsFileSystem(newFromPartialRestoreLocation, currentCollectionFilesLocation)
     }
 }
 
-private fun <StorageMedia> restoreCollection(
+fun assertEqualsFileSystem(actual: ReadonlyFileSystem, expected: ReadonlyFileSystem) {
+    var comparisons = 0
+    expected.walk().forEach { file ->
+        comparisons++
+        assertTrue(actual.digest(file.path) != null, "After $comparisons comparisons, file $file missing in actual!")
+        assertTrue(
+            actual.existsWithHash(file.path, file.hash.storeable),
+            "After $comparisons comparisons, file ${file.path} has different hash!"
+        )
+    }
+
+    actual.walk().forEach { file ->
+        comparisons++
+        assertTrue(
+            expected.digest(file.path) != null,
+            "After $comparisons comparisons, file $file in actual should not exist!"
+        )
+    }
+    println("Done $comparisons comparisons, all good!")
+}
+
+fun <StorageMedia> restoreCollection(
     collectionRepo: StoredRepo,
     storageDevices: Map<StorageMedia, ReadonlyFileSystem>,
     newLocation: WritableDeviceFileSystem
@@ -82,7 +118,13 @@ private fun <StorageMedia> restoreCollection(
             println("Found ${storedPossibleLocations.size} possible stored locations!")
 
             val usableLocations = storedPossibleLocations.filter { (storageDeviceGUID, storageDevicePath) ->
-                checkNotNull(storageDeviceByGuid[storageDeviceGUID]).existsWithHash(storageDevicePath, fileHash)
+                val device = storageDeviceByGuid[storageDeviceGUID]
+                if (device == null) {
+                    println("Device with guid $storageDeviceGUID missing! Can't use for restore.")
+                    false
+                } else {
+                    device.existsWithHash(storageDevicePath, fileHash)
+                }
             }
 
             if (usableLocations.isNotEmpty()) {
@@ -92,6 +134,19 @@ private fun <StorageMedia> restoreCollection(
                     return@forEach
                 }
             }
+
+            println("Backup file $restorePath is not available, restoring via parity checks.")
+
+            val necessaryDataBlocks = FileDataBlockMappings.select(FileDataBlockMappings.dataBlockHash)
+                .where { FileDataBlockMappings.fileHash eq fileHash }
+                .map { it[FileDataBlockMappings.dataBlockHash] }
+
+            println("Will restore file with ${necessaryDataBlocks.size} data blocks.")
+
+            // fetch parity sets
+            // fetch necessary live blocks (in memory blocks, for now)
+            // do parity restore to recreate blocks
+            // write from data from blocks
 
             throw NotImplementedError("Implement restore when data is unavailable")
         }
@@ -107,7 +162,7 @@ private fun ReadonlyFileSystem.existsWithHash(
     return if (existingDigest == null) {
         false
     } else {
-        println("Found file to restore... checking hash")
+        println("Found file to restore from... checking hash")
         if (existingDigest.storeable != fileHash) {
             println("BAD HASH!")
             false
