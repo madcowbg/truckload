@@ -3,15 +3,25 @@ package data
 import data.parity.ParitySet
 import data.parity.naiveBlockMapping
 import data.repo.sql.*
+import data.repo.sql.datablocks.FileRefs
+import data.repo.sql.parity.ParityBlocks
+import data.repo.sql.storagemedia.FileLocations
+import data.repo.sql.storagemedia.ParityLocations
+import data.repo.sql.storagemedia.StorageMedias
 import data.storage.LiveBlock
 import data.storage.ReadonlyFileSystem
 import data.storage.WritableDeviceFileSystem
+import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.transactions.transaction
 import kotlin.math.abs
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
-fun storeCollectionBackup(
+@OptIn(ExperimentalUuidApi::class)
+fun <StorageMedia> storeCollectionBackup(
     collectionRepo: StoredRepo,
     currentCollectionFilesLocation: ReadonlyFileSystem,
-    storageDevices: Map<Int, WritableDeviceFileSystem>
+    storageDevices: Map<StorageMedia, WritableDeviceFileSystem>
 ) {
     val numPartitions = storageDevices.size
 
@@ -20,8 +30,7 @@ fun storeCollectionBackup(
     println("insert files in catalogue...")
     insertFilesInCatalogue(collectionRepo, storedFiles)
 
-
-    val partitionedFiles = storedFiles.groupBy { abs(it.hash.hashCode()) % numPartitions }
+    val partitionedFiles = storedFiles.groupBy { (abs(it.hash.hashCode()) % numPartitions) as StorageMedia }
 
     println("Mapping to blocks ...")
     val blockSize = 1 shl 12 // 4KB
@@ -35,20 +44,52 @@ fun storeCollectionBackup(
 
     paritySets.forEach { insertComputedParitySets(collectionRepo, it.value) }
 
+    val deviceGuids: Map<StorageMedia, String> = transaction(collectionRepo.db) {
+        storageDevices.mapValues { device ->
+            val deviceGuid = Uuid.random().toString()
+            StorageMedias.insert {
+                it[guid] = deviceGuid
+                it[label] = "Device ${device.key}"
+                it[totalSize] = 0
+                it[freeSize] = 0
+            }
+            return@mapValues deviceGuid
+        }
+    }
 
     println("saving parity sets...")
-    paritySets.forEach {
-        val storageDevice = checkNotNull(storageDevices[it.key])
-        val storagePath = storageDevice.root.resolve(".repo/")
-        storagePath.mkdirs()
-        storeParitySets(storagePath.toPath(), it.value)
+    transaction(collectionRepo.db) {
+        paritySets.forEach { (device, paritySetsForDevice) ->
+            val storageDevice = checkNotNull(storageDevices[device])
+            val storagePath = storageDevice.root.resolve(".repo/")
+            storagePath.mkdirs()
+            storeParitySets(storagePath.toPath(), paritySetsForDevice)
+
+            val deviceGuid: String = checkNotNull(deviceGuids[device]) { "invalid device: $device" }
+            paritySetsForDevice.forEach { paritySet ->
+                ParityLocations.insert {
+                    it[hash] = paritySet.parityBlock.hash.storeable
+                    it[storageMedia] = deviceGuid
+                }
+            }
+        }
     }
 
     println("saving split files...")
-    partitionedFiles.forEach { partition ->
-        val storageDevice = checkNotNull(storageDevices[partition.key])
-        partition.value.forEach {
-            storageDevice.copy(it, it.path) // copy physical file to same path
+    transaction(collectionRepo.db) {
+        partitionedFiles.forEach { (deviceId, files) ->
+            val deviceGuid: String = checkNotNull(deviceGuids[deviceId]) { "invalid device: $deviceId" }
+
+            val storageDevice = checkNotNull(storageDevices[deviceId])
+            files.forEach { file ->
+                storageDevice.copy(file, file.path) // copy physical file to same path
+
+                FileLocations.insert {
+                    it[storageMedia] = deviceGuid
+                    it[path] = file.path
+                    it[hash] = file.hash.storeable
+                }
+            }
         }
     }
 

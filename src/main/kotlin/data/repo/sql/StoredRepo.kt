@@ -13,7 +13,7 @@ import data.repo.sql.parity.ParityDataBlockMappings
 import data.repo.sql.parity.ParitySets
 import data.repo.sql.parity.ParityType
 import data.repo.sql.storagemedia.ParityLocations
-import data.repo.sql.storagemedia.StorageMedia
+import data.repo.sql.storagemedia.StorageMedias
 import data.repo.sql.storagemedia.FileLocations
 import data.storage.ReadonlyFileSystem
 import data.storage.Hash
@@ -51,7 +51,7 @@ class StoredRepo private constructor(val db: Database, val rootFolder: Path) {
                     FileVersions,
                     FileLocations,
                     ParityLocations,
-                    StorageMedia
+                    StorageMedias
                 )
             }
 

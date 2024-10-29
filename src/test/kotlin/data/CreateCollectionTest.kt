@@ -1,12 +1,14 @@
 package data
 
 import data.repo.sql.StoredRepo
+import data.repo.sql.listOfIssues
 import data.storage.DeviceFileSystem
 import data.storage.ReadonlyFileSystem
 import data.storage.WritableDeviceFileSystem
 import org.junit.jupiter.api.Test
 import perftest.TestDataSettings
 import java.io.File
+import kotlin.test.assertEquals
 
 class CreateCollectionTest {
 
@@ -28,6 +30,11 @@ class CreateCollectionTest {
             .associateWith { WritableDeviceFileSystem("$testPath/Device ${it}/") }
 
         storeCollectionBackup(collectionRepo, currentCollectionFilesLocation, storageDevices)
+
+        assertEquals(0, collectionRepo.listOfIssues().count())
+        for(issue in collectionRepo.listOfIssues()) {
+            println(issue)
+        }
     }
 }
 
