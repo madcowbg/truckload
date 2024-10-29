@@ -5,7 +5,7 @@ import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.or
 
 object ParitySets : Table("parity_sets") {
-    val hash = text("hash").uniqueIndex()
+    val hash = text("hash")
 
     override val primaryKey: PrimaryKey = PrimaryKey(hash)
 

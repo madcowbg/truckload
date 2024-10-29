@@ -60,6 +60,10 @@ class WritableDeviceFileSystem(rootFolder: String): WritableFileSystem, DeviceFi
 
         inputFile.file.copyTo(root.resolve(toPath), overwrite = true)
     }
+
+    override fun write(toPath: String, data: ByteArray) {
+        root.resolve(toPath).writeBytes(data)
+    }
 }
 
 private fun File.digest(): Hash? = try {

@@ -9,7 +9,7 @@ interface Block {
 
 @Deprecated("use data.repo.sql.datablocks")
 class FileReference(val file: ReadonlyFileSystem.File, val fileHash: Hash, val from: Long, val to: Long) {
-    val size: Long = to - from
+    val chunkSize: Int = (to - from).toInt() // can reference at most 2G
     val data: ByteArray
         get() = file.dataInRange(from, to)
 
@@ -19,7 +19,7 @@ class FileReference(val file: ReadonlyFileSystem.File, val fileHash: Hash, val f
 @Deprecated("use data.repo.sql.datablocks")
 class LiveBlock(override val size: Int, val files: List<FileReference>) : Block {
     override val data: ByteArray
-        get() = files.map { it.data }.reduce { a, b -> a.plus(b) } + ByteArray((size - files.sumOf { it.size }).toInt())
+        get() = files.map { it.data }.reduce { a, b -> a.plus(b) } + ByteArray((size - files.sumOf { it.chunkSize }).toInt())
 
     override val hash: Hash by lazy { Hash.digest(data) }
 }

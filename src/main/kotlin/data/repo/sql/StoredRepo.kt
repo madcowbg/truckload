@@ -138,14 +138,17 @@ fun insertLiveBlockMapping(storedRepo: StoredRepo, blockMapping: List<LiveBlock>
                 it[size] = liveBlock.size
             }
 
+            var currentOffset = 0
             for (file in liveBlock.files) {
                 FileDataBlockMappings.insertIgnore { // files with the same content will duplicate
-                    it[dataBlockHash] = liveBlock.hash.storeable
-                    it[blockOffset] = 0 // fixme this is the naive way to store - one file at most per block...
-                    it[fileOffset] = file.from
-                    it[chunkSize] = file.size
                     it[fileHash] = file.fileHash.storeable
+                    it[fileOffset] = file.from
+
+                    it[dataBlockHash] = liveBlock.hash.storeable
+                    it[blockOffset] = currentOffset
+                    it[chunkSize] = file.chunkSize
                 }
+                currentOffset += file.chunkSize
             }
 
         }

@@ -1,5 +1,6 @@
 package data
 
+import data.parity.restoreBlock
 import data.repo.sql.StoredRepo
 import data.repo.sql.catalogue.FileVersions
 import data.repo.sql.datablocks.DataBlocks
@@ -13,6 +14,7 @@ import data.repo.sql.storagemedia.FileLocations
 import data.repo.sql.storagemedia.ParityLocations
 import data.repo.sql.storagemedia.StorageMedias
 import data.storage.DeviceFileSystem
+import data.storage.Hash
 import data.storage.ReadonlyFileSystem
 import data.storage.WritableDeviceFileSystem
 import org.jetbrains.exposed.sql.JoinType
@@ -120,7 +122,7 @@ fun <StorageMedia> restoreCollection(
             val storedPossibleLocations = FileLocations.selectAll()
                 .where { FileLocations.hash eq fileHash }
                 .associate { it[FileLocations.storageMedia] to it[FileLocations.path] }
-            println("Found ${storedPossibleLocations.size} possible stored locations!")
+//            println("Found ${storedPossibleLocations.size} possible stored locations!")
 
             val usableLocations = storedPossibleLocations.filter { (storageDeviceGUID, storageDevicePath) ->
                 val device = storageDeviceByGuid[storageDeviceGUID]
@@ -142,11 +144,26 @@ fun <StorageMedia> restoreCollection(
 
             println("Backup file $restorePath is not available, restoring via parity checks.")
 
-            val necessaryDataBlocks: List<String> = FileDataBlockMappings.select(FileDataBlockMappings.dataBlockHash)
-                .where { FileDataBlockMappings.fileHash eq fileHash }
-                .map { it[FileDataBlockMappings.dataBlockHash] }
+            data class NecessaryDataBlockMappings(
+                val fileOffset: Long,
+                val chunkSize: Int,
+                val dataBlockHash: String,
+                val blockOffset: Int,
+            )
 
-            println("Will restore file with ${necessaryDataBlocks.size} data blocks.")
+            val necessaryDataBlocks: List<NecessaryDataBlockMappings> =
+                FileDataBlockMappings.selectAll()
+                    .where { FileDataBlockMappings.fileHash eq fileHash }
+                    .map {
+                        NecessaryDataBlockMappings(
+                            it[FileDataBlockMappings.fileOffset],
+                            it[FileDataBlockMappings.chunkSize],
+                            it[FileDataBlockMappings.dataBlockHash],
+                            it[FileDataBlockMappings.blockOffset],
+                        )
+                    }
+
+            println("Will restore file $fileHash with ${necessaryDataBlocks.size} data blocks.")
 
             data class ParitySetToRestore(val paritySetId: String)
 
@@ -164,21 +181,20 @@ fun <StorageMedia> restoreCollection(
             )
 
             val parityRestoreBlocks: List<ParityBlockToRestore> =
-                (ParityDataBlockMappings innerJoin ParitySets.join(
+                (ParitySets.join(
                     ParityBlocks,
                     JoinType.INNER,
                     onColumn = ParityBlocks.hash,
                     otherColumn = ParitySets.parityPHash
                 ) innerJoin ParityLocations innerJoin StorageMedias)
-
                     .selectAll() // fixme optimise
-                    .where { ParityDataBlockMappings.paritySetId.inList(paritySetIds.map { it.paritySetId }) }
+                    .where { ParitySets.hash.inList(paritySetIds.map { it.paritySetId }) }
                     .map {
                         val storageDevice = storageDeviceByGuid[it[StorageMedias.guid]]
                         val parityLocationFilePath =
                             storageDevice?.resolve(".repo/parity_blocks/${it[ParityLocations.hash]}.parity")
                         ParityBlockToRestore(
-                            it[ParityDataBlockMappings.paritySetId],
+                            it[ParitySets.hash],
                             it[ParitySets.parityPHash],
                             parityLocationFilePath
                         )
@@ -186,53 +202,136 @@ fun <StorageMedia> restoreCollection(
 
             parityRestoreBlocks.forEach { println(it) }
 
-            data class LiveToRestore(
+            data class LiveDataToRestore(
                 val paritySetId: String,
                 val fileHash: String,
                 val fileOffset: Long,
-                val chunkSize: Long,
+                val chunkSize: Int,
                 val dataBlockHash: String,
-                val blockOffset: Long,
-                val file: ReadonlyFileSystem.File?,
+                val dataBlockSize: Int,
+                val blockOffset: Int,
             )
 
-            val dataRestoreBlocks: List<LiveToRestore> =
-                (ParityDataBlockMappings innerJoin DataBlocks innerJoin FileDataBlockMappings innerJoin FileRefs innerJoin FileLocations innerJoin StorageMedias)
+            val dataRestoreBlocks: Map<String, LiveDataToRestore> =
+                (ParityDataBlockMappings innerJoin DataBlocks innerJoin FileDataBlockMappings innerJoin FileRefs)
                     .selectAll() // fixme optimise
                     .where { ParityDataBlockMappings.paritySetId.inList(paritySetIds.map { it.paritySetId }) }
-                    .map {
-                        val storageDevice = storageDeviceByGuid[it[StorageMedias.guid]]
-                        val storageLocationFilePath = it[FileLocations.path]
-                        LiveToRestore(
+                    .associate {
+                        it[FileDataBlockMappings.fileHash] to LiveDataToRestore(
                             it[ParityDataBlockMappings.paritySetId],
                             it[FileDataBlockMappings.fileHash],
                             it[FileDataBlockMappings.fileOffset],
                             it[FileDataBlockMappings.chunkSize],
                             it[FileDataBlockMappings.dataBlockHash],
-                            it[FileDataBlockMappings.blockOffset],
-                            storageDevice?.resolve(storageLocationFilePath),
+                            it[DataBlocks.size],
+                            it[FileDataBlockMappings.blockOffset]
                         )
                     }
-
             dataRestoreBlocks.forEach { println(it) }
 
+            data class RestoreLocation(
+                val fileHash: String,
+                val storageDeviceGUID: String,
+                val fileObject: ReadonlyFileSystem.File
+            )
+
+            val restoreLocations = (FileLocations innerJoin StorageMedias).selectAll()
+                .where { FileLocations.hash.inList(dataRestoreBlocks.keys) }
+                .mapNotNull {
+                    val storageDeviceGUID = it[StorageMedias.guid]
+                    val storageDevice = storageDeviceByGuid[storageDeviceGUID] ?: return@mapNotNull null
+                    val storageLocationFilePath = it[FileLocations.path]
+
+                    // this can be used
+                    RestoreLocation(it[FileLocations.hash], storageDeviceGUID, storageDevice.resolve(storageLocationFilePath))
+                }.groupBy { it.fileHash }
+
+            restoreLocations.forEach { println(it) }
+
+            data class LiveToRestoreFile(val data: LiveDataToRestore, val file: ReadonlyFileSystem.File?)
+            val dataRestoreFiles = dataRestoreBlocks.map { (key, data) ->
+                val restoreFile = restoreLocations[key]?.firstOrNull()?.fileObject
+                if (restoreFile == null) {
+                    println("Cannot find a viable source for file $key to restore from.")
+                }
+                LiveToRestoreFile(data, restoreFile)
+            }
+
+            dataRestoreFiles.forEach { println(it) }
+
             val parityRestoreBlocksByParitySet = parityRestoreBlocks.groupBy { it.paritySetId }
-            val dataRestoreBlocksByParitySet = dataRestoreBlocks.groupBy { it.paritySetId }
+            val dataRestoreBlocksByParitySet = dataRestoreFiles.groupBy { it.data.paritySetId }
 
-            dataRestoreBlocksByParitySet.forEach { (paritySetId, liveBlocks) ->
-                val parityBlocks = parityRestoreBlocksByParitySet[paritySetId] // todo what if null??
+            val restoredBlocks: Map<String, ByteArray> =
+                dataRestoreBlocksByParitySet.mapNotNull { (paritySetId, liveBlocks) ->
+                    if (!liveBlocks.any { liveBlock -> liveBlock.data.fileHash == fileHash }) {
+                        println("Skipping setId=$paritySetId because we don't need any of the blocks.")
+                        throw IllegalStateException("should never happen")
+                    }
 
+                    println("Restoring setId=" + paritySetId + " " + liveBlocks.size)
 
+                    val parityBlocks = parityRestoreBlocksByParitySet[paritySetId]!! // todo what if null??
+                    val parityBlocksData = parityBlocks
+                        .mapNotNull { parityBlock -> parityBlock.parityFile?.let { it.dataInRange(0, it.fileSize) } }
 
-                println(paritySetId + " " + liveBlocks.size)
+                    val filesByBlock = liveBlocks.groupBy { it.data.dataBlockHash }
+                    val filesBlockData = filesByBlock.mapValues { (_, filesForBlock) ->
+                        val blockData = ByteArray(filesForBlock.first().data.dataBlockSize)
+                        for (it in filesForBlock) {
+                            if (it.data.fileHash == fileHash) {
+                                println("Skipping ${it.data.fileHash} because it is in fact the block we want to restore") // ugly AF
+                                continue
+                            }
+                            if (it.file == null) {
+                                throw IllegalStateException("File missing: ${it.data.fileHash} but is required for restore!")
+                            }
 
+                            val fileData =
+                                it.file.dataInRange(it.data.fileOffset, it.data.fileOffset + it.data.chunkSize)
+                            fileData.copyInto(blockData, it.data.blockOffset)
+                        }
+                        return@mapValues blockData
+                    }
+
+                    val restoredBlock = restoreBlock(parityBlocksData + filesBlockData.values)
+                    val restoredHash = Hash.digest(restoredBlock)
+                    if (liveBlocks.map { it.data.dataBlockHash }.contains(restoredHash.storeable)) {
+                        println("Successful restore of block $restoredHash!")
+                    } else {
+                        throw IllegalStateException("Failed restore of parityId $paritySetId!")
+                    }
+                    restoredHash.storeable to restoredBlock
+                }.toMap()
+
+            val unrecoverableBlocks = necessaryDataBlocks.filter { it.dataBlockHash !in restoredBlocks.keys }
+            unrecoverableBlocks.forEach {
+                println("Failed restoring block $it")
             }
-            necessaryDataBlocks.map { blockHash ->
-                dataRestoreBlocksByParitySet
 
+            val necessaryDataBlockHashes = necessaryDataBlocks.map { it.dataBlockHash }
+            restoredBlocks.keys.filter { it !in necessaryDataBlockHashes }.forEach {
+                println("Restored unnecessary block $it, but it is fine.")
             }
+
+            val restoredFileData =
+                ByteArray(fileVersion[FileRefs.size].toInt()) // todo rewrite on-line to support >2GB files
+            necessaryDataBlocks.forEach { blockDescriptor ->
+                val restoredBlockData = checkNotNull(restoredBlocks[blockDescriptor.dataBlockHash])
+
+                restoredBlockData
+                    .sliceArray(blockDescriptor.blockOffset until blockDescriptor.blockOffset + blockDescriptor.chunkSize)
+                    .copyInto(restoredFileData, blockDescriptor.fileOffset.toInt())
+            }
+
+            val restoredFileDigest = Hash.digest(restoredFileData)
+            if (restoredFileDigest.storeable != fileHash) {
+                throw IllegalStateException("Restored file does not have expected hash!")
+            }
+
+            newLocation.write(fileVersion[FileVersions.path], restoredFileData)
+
 //
-
 //                .join(ParityDataBlockMappings, JoinType.INNER, onColumn = DataBlocks.hash, otherColumn = Parity)
 //                .selectAll()
 
@@ -255,12 +354,12 @@ private fun ReadonlyFileSystem.existsWithHash(
     return if (existingDigest == null) {
         false
     } else {
-        println("Found file to restore from... checking hash")
+//        println("Found file to restore from... checking hash")
         if (existingDigest.storeable != fileHash) {
-            println("BAD HASH!")
+            println("BAD HASH for $path!")
             false
         } else {
-            println("Hash is correct! Using...")
+//            println("Hash is correct! Using...")
             true
         }
     }
