@@ -1,6 +1,6 @@
 package perftest
 
-import data.storage.FileSystem
+import data.storage.ReadonlyFileSystem
 import data.storage.Hash
 import java.io.IOException
 import kotlin.random.Random
@@ -11,9 +11,9 @@ class DummyFileSystem(
     stdSize: Int = 6000,
     filenameLength: Int = 100,
     seed: Long = 0
-) : FileSystem {
-    inner class DummyFile(override val path: String, override val fileSize: Long) : FileSystem.File {
-        override val location: FileSystem = this@DummyFileSystem
+) : ReadonlyFileSystem {
+    inner class DummyFile(override val path: String, override val fileSize: Long) : ReadonlyFileSystem.File {
+        override val location: ReadonlyFileSystem = this@DummyFileSystem
         override val hash: Hash by lazy { Hash(dataInRange(0, fileSize)) }
 
 //        private val data: ByteArray
@@ -45,6 +45,6 @@ class DummyFileSystem(
         }
     }
 
-    override fun resolve(path: String): FileSystem.File = files[path] ?: throw IOException("File not found: $path")
-    override fun walk(): Sequence<FileSystem.File> = files.values.sortedBy { it.path }.asSequence()
+    override fun resolve(path: String): ReadonlyFileSystem.File = files[path] ?: throw IOException("File not found: $path")
+    override fun walk(): Sequence<ReadonlyFileSystem.File> = files.values.sortedBy { it.path }.asSequence()
 }

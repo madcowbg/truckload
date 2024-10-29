@@ -1,6 +1,6 @@
-import data.storage.FileSystem
+import data.storage.ReadonlyFileSystem
 
-fun Sequence<FileSystem.File>.dumpToConsole() {
+fun Sequence<ReadonlyFileSystem.File>.dumpToConsole() {
     println("DUMPING REPO")
     println("Storage:")
     forEach { version -> println("${version.hash} ${version.location} ${version.path}") }

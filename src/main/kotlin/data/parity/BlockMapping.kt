@@ -2,7 +2,7 @@ package data.parity
 
 import data.storage.*
 
-fun naiveBlockMapping(storage: Iterator<FileSystem.File>, blockSize: Int = 1 shl 12 /* 4KB */): List<LiveBlock> {
+fun naiveBlockMapping(storage: Iterator<ReadonlyFileSystem.File>, blockSize: Int = 1 shl 12 /* 4KB */): List<LiveBlock> {
     val fileBlocks: MutableList<LiveBlock> = mutableListOf()
     for (storedFile in storage) {
         val splitCnt = if (storedFile.fileSize % blockSize == 0L) {

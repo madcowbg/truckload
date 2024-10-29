@@ -8,7 +8,7 @@ interface Block {
 }
 
 @Deprecated("use data.repo.sql.datablocks")
-class FileReference(val file: FileSystem.File, val fileHash: Hash, val from: Long, val to: Long) {
+class FileReference(val file: ReadonlyFileSystem.File, val fileHash: Hash, val from: Long, val to: Long) {
     val size: Long = to - from
     val data: ByteArray
         get() = file.dataInRange(from, to)

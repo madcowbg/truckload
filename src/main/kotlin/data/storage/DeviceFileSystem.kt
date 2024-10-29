@@ -5,17 +5,17 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import kotlin.io.path.fileSize
 
-class DeviceFileSystem(rootFolder: String) : FileSystem {
-    private val root: File = File(rootFolder)
+class DeviceFileSystem(rootFolder: String) : ReadonlyFileSystem {
+    internal val root: File = File(rootFolder)
     private val allFiles = mutableMapOf<String, DeviceFile>()
 
-    inner class DeviceFile(private val file: File, override val hash: Hash) : FileSystem.File {
+    inner class DeviceFile(internal val file: File, override val hash: Hash) : ReadonlyFileSystem.File {
 
         init {
             check(file.isAbsolute) { "File $file is not absolute!" }
         }
 
-        override val location: FileSystem = this@DeviceFileSystem
+        override val location: ReadonlyFileSystem = this@DeviceFileSystem
 
         override val path: String = file.relativeTo(root).path
 
@@ -34,18 +34,30 @@ class DeviceFileSystem(rootFolder: String) : FileSystem {
 
         override fun hashCode(): Int = file.hashCode()
         override fun equals(other: Any?): Boolean = other is DeviceFile && file == other.file
+
+        override fun toString(): String = file.toString()
     }
 
-
-    override fun resolve(path: String): FileSystem.File {
+    override fun resolve(path: String): DeviceFile {
         return allFiles.computeIfAbsent(path) { root.resolve(File(path)).let { DeviceFile(it, it.digest()!!) } }
     }
 
-    override fun walk(): Sequence<FileSystem.File> =
+    override fun walk(): Sequence<DeviceFile> =
         root.walk().filter { it.isFile }.mapNotNull { file ->
             val hash = file.digest() ?: return@mapNotNull null
             allFiles.computeIfAbsent(file.path) { DeviceFile(file, hash) }
         }
+}
+
+class WritableDeviceFileSystem(rootFolder: String): WritableFileSystem {
+    val root: File = File(rootFolder)
+
+    override fun copy(file: ReadonlyFileSystem.File, toPath: String) {
+        val inputFile =
+            file as? DeviceFileSystem.DeviceFile ?: throw IllegalArgumentException("cannot copy $file to $toPath from non-device file!")
+
+        inputFile.file.copyTo(root.resolve(toPath), overwrite = true)
+    }
 }
 
 private fun File.digest(): Hash? = try {

@@ -15,7 +15,7 @@ import data.repo.sql.parity.ParityType
 import data.repo.sql.storagemedia.ParityLocations
 import data.repo.sql.storagemedia.StorageMedia
 import data.repo.sql.storagemedia.FileLocations
-import data.storage.FileSystem
+import data.storage.ReadonlyFileSystem
 import data.storage.Hash
 import data.storage.LiveBlock
 import org.jetbrains.exposed.sql.*
@@ -70,7 +70,7 @@ class StoredRepo private constructor(val db: Database, val rootFolder: Path) {
 
 class InvalidRepoData(val message: String)
 
-fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Unit): StoredRepo {
+fun StoredRepo.naiveInitializeRepo(location: ReadonlyFileSystem, logger: (String) -> Unit): StoredRepo {
     logger("Reading folder ...")
     val storedFiles = location.walk()
     logger("Mapping to blocks ...")
@@ -85,13 +85,13 @@ fun StoredRepo.naiveInitializeRepo(location: FileSystem, logger: (String) -> Uni
     insertLiveBlockMapping(this, blockMapping)
 
     logger("insert computed parity sets...")
-    insertComputedParitySets(this, paritySets)
+    insertComputedParitySetsAndStore(this, paritySets)
 
     logger("done init!")
     return this
 }
 
-fun insertFilesInCatalogue(storedRepo: StoredRepo, storedFiles: Sequence<FileSystem.File>) {
+fun insertFilesInCatalogue(storedRepo: StoredRepo, storedFiles: Sequence<ReadonlyFileSystem.File>) {
     transaction(storedRepo.db) {
         for (file in storedFiles) {
             FileRefs.insertIgnore { // ignore because two files can be in different places
@@ -138,6 +138,11 @@ fun insertLiveBlockMapping(storedRepo: StoredRepo, blockMapping: List<LiveBlock>
     }
 }
 
+fun insertComputedParitySetsAndStore(storedRepo: StoredRepo, paritySets: List<ParitySet>) {
+    insertComputedParitySets(storedRepo, paritySets)
+    storeParitySets(storedRepo.rootFolder, paritySets)
+}
+
 fun insertComputedParitySets(storedRepo: StoredRepo, paritySets: List<ParitySet>) {
     transaction(storedRepo.db) {
         for (paritySet in paritySets) {
@@ -145,19 +150,6 @@ fun insertComputedParitySets(storedRepo: StoredRepo, paritySets: List<ParitySet>
             ParityBlocks.insertIgnore {
                 it[hash] = parityBlock.hash.storeable
                 it[size] = parityBlock.size
-            }
-
-            // create parity blocks folder (if missing...)
-            val parityBlocksPath = storedRepo.rootFolder.resolve("parity_blocks/")
-            parityBlocksPath.toFile().mkdirs()
-
-            val parityBlockFile = parityBlocksPath.resolve(parityBlock.hash.storeable + ".parity")
-            if (!parityBlockFile.exists()) {
-                val outputStream = FileOutputStream(parityBlockFile.toFile())
-                outputStream.write(parityBlock.data)
-                outputStream.close()
-            } else {
-                println("block file $parityBlockFile already exists") // fixme at least check digests maybe?
             }
 
             val paritySetHash = Hash.digest(
@@ -182,6 +174,25 @@ fun insertComputedParitySets(storedRepo: StoredRepo, paritySets: List<ParitySet>
                     it[dataBlockHash] = liveBlock.hash.storeable
                 }
             }
+        }
+    }
+}
+
+fun storeParitySets(rootFolder: Path, paritySets: List<ParitySet>) {
+    for (paritySet in paritySets) {
+        val parityBlock = paritySet.parityBlock
+
+        // create parity blocks folder (if missing...)
+        val parityBlocksPath = rootFolder.resolve("parity_blocks/")
+        parityBlocksPath.toFile().mkdirs()
+
+        val parityBlockFile = parityBlocksPath.resolve(parityBlock.hash.storeable + ".parity")
+        if (!parityBlockFile.exists()) {
+            val outputStream = FileOutputStream(parityBlockFile.toFile())
+            outputStream.write(parityBlock.data)
+            outputStream.close()
+        } else {
+            println("block file $parityBlockFile already exists") // fixme at least check digests maybe?
         }
     }
 }

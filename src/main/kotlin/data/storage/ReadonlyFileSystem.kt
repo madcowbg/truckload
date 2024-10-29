@@ -1,14 +1,11 @@
 package data.storage
 
-import kotlin.properties.ReadOnlyProperty
-import kotlin.reflect.KCallable
-
-interface FileSystem {
+interface ReadonlyFileSystem {
     fun resolve(path: String): File
     fun walk(): Sequence<File>
 
     interface File {
-        val location: FileSystem
+        val location: ReadonlyFileSystem
         val hash: Hash
         val path: String
         val fileSize: Long
