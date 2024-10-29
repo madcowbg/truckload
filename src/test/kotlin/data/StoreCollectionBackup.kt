@@ -3,8 +3,6 @@ package data
 import data.parity.ParitySet
 import data.parity.naiveBlockMapping
 import data.repo.sql.*
-import data.repo.sql.datablocks.FileRefs
-import data.repo.sql.parity.ParityBlocks
 import data.repo.sql.storagemedia.FileLocations
 import data.repo.sql.storagemedia.ParityLocations
 import data.repo.sql.storagemedia.StorageMedias
@@ -49,7 +47,7 @@ fun <StorageMedia> storeCollectionBackup(
             val deviceGuid = Uuid.random().toString()
             StorageMedias.insert {
                 it[guid] = deviceGuid
-                it[label] = "Device ${device.key}"
+                it[label] = device.key.toString()
                 it[totalSize] = 0
                 it[freeSize] = 0
             }

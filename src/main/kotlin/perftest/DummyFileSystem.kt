@@ -16,14 +16,6 @@ class DummyFileSystem(
         override val location: ReadonlyFileSystem = this@DummyFileSystem
         override val hash: Hash by lazy { Hash(dataInRange(0, fileSize)) }
 
-//        private val data: ByteArray
-//            get() {
-//                val generator = Random(path.hashCode())
-//                val data = ByteArray(fileSize.toInt())
-//                generator.nextBytes(data)
-//                return data
-//            }
-
         private val data: ByteArray by lazy {
             val generator = Random(path.hashCode())
             val data = ByteArray(fileSize.toInt())
@@ -45,6 +37,10 @@ class DummyFileSystem(
         }
     }
 
-    override fun resolve(path: String): ReadonlyFileSystem.File = files[path] ?: throw IOException("File not found: $path")
+    override fun resolve(path: String): ReadonlyFileSystem.File =
+        files[path] ?: throw IOException("File not found: $path")
+
     override fun walk(): Sequence<ReadonlyFileSystem.File> = files.values.sortedBy { it.path }.asSequence()
+    override fun digest(path: String): Hash? = files[path]?.hash
+    override fun existsWithHash(path: String): Boolean = path in files
 }

@@ -3,6 +3,8 @@ package data.storage
 interface ReadonlyFileSystem {
     fun resolve(path: String): File
     fun walk(): Sequence<File>
+    fun digest(path: String): Hash?
+    fun existsWithHash(path: String): Boolean
 
     interface File {
         val location: ReadonlyFileSystem

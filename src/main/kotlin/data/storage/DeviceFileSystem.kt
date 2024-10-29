@@ -5,7 +5,7 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import kotlin.io.path.fileSize
 
-class DeviceFileSystem(rootFolder: String) : ReadonlyFileSystem {
+open class DeviceFileSystem(rootFolder: String) : ReadonlyFileSystem {
     internal val root: File = File(rootFolder)
     private val allFiles = mutableMapOf<String, DeviceFile>()
 
@@ -47,10 +47,12 @@ class DeviceFileSystem(rootFolder: String) : ReadonlyFileSystem {
             val hash = file.digest() ?: return@mapNotNull null
             allFiles.computeIfAbsent(file.path) { DeviceFile(file, hash) }
         }
+
+    override fun digest(path: String): Hash? = root.resolve(path).digest()
+    override fun existsWithHash(path: String): Boolean = root.resolve(path).exists()
 }
 
-class WritableDeviceFileSystem(rootFolder: String): WritableFileSystem {
-    val root: File = File(rootFolder)
+class WritableDeviceFileSystem(rootFolder: String): WritableFileSystem, DeviceFileSystem(rootFolder) {
 
     override fun copy(file: ReadonlyFileSystem.File, toPath: String) {
         val inputFile =
