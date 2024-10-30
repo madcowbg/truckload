@@ -9,6 +9,6 @@ object FileDataBlockMappings : Table("file_data_block_mappings") {
 
     override val primaryKey = PrimaryKey(fileHash, fileOffset, chunkSize)
 
-    val dataBlockHash = reference("data_block_hash", DataBlocks.hash)
+    val dataBlockHash = reference("data_block_hash", FileDataBlocks.hash)
     val blockOffset = integer("block_offset").check("block_offset_must_be_nonnegative") { it.greaterEq(0) }
 }

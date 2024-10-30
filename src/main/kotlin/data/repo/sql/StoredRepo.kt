@@ -2,18 +2,18 @@ package data.repo.sql
 
 import data.parity.ParitySet
 import data.parity.naiveBlockMapping
-import data.repo.sql.catalogue.FileVersions
+import data.repo.sql.catalogue.CatalogueFileVersions
 import data.repo.sql.catalogue.VersionState
-import data.repo.sql.datablocks.DataBlocks
+import data.repo.sql.datablocks.FileDataBlocks
 import data.repo.sql.datablocks.FileDataBlockMappings
 import data.repo.sql.datablocks.FileRefs
 import data.repo.sql.parity.ParityBlocks
 import data.repo.sql.parity.ParityDataBlockMappings
 import data.repo.sql.parity.ParitySets
 import data.repo.sql.parity.ParityType
-import data.repo.sql.storagemedia.ParityLocations
+import data.repo.sql.storagemedia.StorageParityLocations
 import data.repo.sql.storagemedia.StorageMedias
-import data.repo.sql.storagemedia.FileLocations
+import data.repo.sql.storagemedia.StorageFileLocations
 import data.storage.ReadonlyFileSystem
 import data.storage.Hash
 import data.storage.LiveBlock
@@ -41,15 +41,15 @@ class StoredRepo private constructor(val db: Database, val rootFolder: Path) {
             val repo = connect(repoPath)
             transaction(repo.db) {
                 SchemaUtils.create(
-                    DataBlocks,
+                    FileDataBlocks,
                     FileRefs,
                     FileDataBlockMappings,
                     ParityBlocks,
                     ParitySets,
                     ParityDataBlockMappings,
-                    FileVersions,
-                    FileLocations,
-                    ParityLocations,
+                    CatalogueFileVersions,
+                    StorageFileLocations,
+                    StorageParityLocations,
                     StorageMedias
                 )
             }
@@ -113,7 +113,7 @@ fun insertFilesInCatalogue(storedRepo: StoredRepo, storedFiles: Sequence<Readonl
                 it[size] = file.fileSize
             }
 
-            FileVersions.insert {
+            CatalogueFileVersions.insert {
                 it[path] = file.path
                 it[hash] = file.hash.storeable
                 it[state] = VersionState.EXISTING
@@ -126,14 +126,14 @@ fun insertLiveBlockMapping(storedRepo: StoredRepo, blockMapping: List<LiveBlock>
     // insert live block mapping
     transaction(storedRepo.db) {
         for (liveBlock in blockMapping) {
-            if (false && !DataBlocks.selectAll().where(DataBlocks.hash.eq(liveBlock.hash.storeable)).empty()) {
+            if (false && !FileDataBlocks.selectAll().where(FileDataBlocks.hash.eq(liveBlock.hash.storeable)).empty()) {
                 println(
                     "duplicate parity block ${liveBlock.hash} " +
-                            "when # of stored is ${DataBlocks.selectAll().count()}."
+                            "when # of stored is ${FileDataBlocks.selectAll().count()}."
                 )
             }
 
-            DataBlocks.insertIgnore { // blocks can duplicate, e.g. empty or repeating values
+            FileDataBlocks.insertIgnore { // blocks can duplicate, e.g. empty or repeating values
                 it[hash] = liveBlock.hash.storeable
                 it[size] = liveBlock.size
             }

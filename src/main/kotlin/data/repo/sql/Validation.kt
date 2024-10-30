@@ -1,7 +1,7 @@
 package data.repo.sql
 
-import data.repo.sql.catalogue.FileVersions
-import data.repo.sql.datablocks.DataBlocks
+import data.repo.sql.catalogue.CatalogueFileVersions
+import data.repo.sql.datablocks.FileDataBlocks
 import data.repo.sql.datablocks.FileDataBlockMappings
 import data.repo.sql.datablocks.FileRefs
 import data.repo.sql.parity.ParityDataBlockMappings
@@ -28,12 +28,12 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
             }
         }
 
-        (FileDataBlockMappings innerJoin DataBlocks).selectAll().forEach {
-            if (it[FileDataBlockMappings.blockOffset] + it[FileDataBlockMappings.chunkSize] > it[DataBlocks.size]) {
+        (FileDataBlockMappings innerJoin FileDataBlocks).selectAll().forEach {
+            if (it[FileDataBlockMappings.blockOffset] + it[FileDataBlockMappings.chunkSize] > it[FileDataBlocks.size]) {
                 report(
                     InvalidRepoData(
                         "FileDataBlockMappings ParityBlocks ${it[FileDataBlockMappings.fileOffset]} + ${it[FileDataBlockMappings.chunkSize]} " +
-                                "> size=${it[DataBlocks.size]}"
+                                "> size=${it[FileDataBlocks.size]}"
                     )
                 )
             }
@@ -67,20 +67,20 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
         }
 
         // validate each parity block references some file
-        (DataBlocks leftJoin FileDataBlockMappings)
-            .select(DataBlocks.hash, FileDataBlockMappings.fileHash.count())
-            .groupBy(DataBlocks.hash)
+        (FileDataBlocks leftJoin FileDataBlockMappings)
+            .select(FileDataBlocks.hash, FileDataBlockMappings.fileHash.count())
+            .groupBy(FileDataBlocks.hash)
             .forEach {
                 if (it[FileDataBlockMappings.fileHash.count()] == 0L) {
-                    report(InvalidRepoData("DataBlocks ${it[DataBlocks.hash]} is unused!"))
+                    report(InvalidRepoData("DataBlocks ${it[FileDataBlocks.hash]} is unused!"))
                 }
             }
 
         // validate each file ref is used for at least one file in the catalogue
-        (FileRefs leftJoin FileVersions)
-            .select(FileRefs.hash, FileVersions.path.count())
+        (FileRefs leftJoin CatalogueFileVersions)
+            .select(FileRefs.hash, CatalogueFileVersions.path.count())
             .groupBy(FileRefs.hash).forEach {
-                if (it[FileVersions.path.count()] == 0L) {
+                if (it[CatalogueFileVersions.path.count()] == 0L) {
                     report(InvalidRepoData("FileRefs ${it[FileRefs.hash]} is unused!"))
                 }
             }

@@ -2,16 +2,16 @@ package data
 
 import data.parity.restoreBlock
 import data.repo.sql.StoredRepo
-import data.repo.sql.catalogue.FileVersions
-import data.repo.sql.datablocks.DataBlocks
+import data.repo.sql.catalogue.CatalogueFileVersions
+import data.repo.sql.datablocks.FileDataBlocks
 import data.repo.sql.datablocks.FileDataBlockMappings
 import data.repo.sql.datablocks.FileRefs
 import data.repo.sql.listOfIssues
 import data.repo.sql.parity.ParityBlocks
 import data.repo.sql.parity.ParityDataBlockMappings
 import data.repo.sql.parity.ParitySets
-import data.repo.sql.storagemedia.FileLocations
-import data.repo.sql.storagemedia.ParityLocations
+import data.repo.sql.storagemedia.StorageFileLocations
+import data.repo.sql.storagemedia.StorageParityLocations
 import data.repo.sql.storagemedia.StorageMedias
 import data.storage.DeviceFileSystem
 import data.storage.Hash
@@ -103,11 +103,11 @@ fun <StorageMedia> restoreCollection(
                 .associate { (it[StorageMedias.label].toInt() as StorageMedia) to it[StorageMedias.guid] }
         val storageDeviceByGuid = storageDevices.mapKeys { storageDeviceGUIDs[it.key] }
 
-        FileVersions.selectAll().forEach { fileVersion ->
-            val restorePath = fileVersion[FileVersions.path]
+        CatalogueFileVersions.selectAll().forEach { fileVersion ->
+            val restorePath = fileVersion[CatalogueFileVersions.path]
             // todo consider VersionState
 
-            val fileHash = fileVersion[FileVersions.hash]
+            val fileHash = fileVersion[CatalogueFileVersions.hash]
 
             val digest = newLocation.digest(restorePath)
             if (digest != null) {
@@ -119,9 +119,9 @@ fun <StorageMedia> restoreCollection(
                 return@forEach
             }
 
-            val storedPossibleLocations = FileLocations.selectAll()
-                .where { FileLocations.hash eq fileHash }
-                .associate { it[FileLocations.storageMedia] to it[FileLocations.path] }
+            val storedPossibleLocations = StorageFileLocations.selectAll()
+                .where { StorageFileLocations.hash eq fileHash }
+                .associate { it[StorageFileLocations.storageMedia] to it[StorageFileLocations.path] }
 //            println("Found ${storedPossibleLocations.size} possible stored locations!")
 
             val usableLocations = storedPossibleLocations.filter { (storageDeviceGUID, storageDevicePath) ->
@@ -169,7 +169,7 @@ fun <StorageMedia> restoreCollection(
 
             // parity blocks
             val paritySetIds: List<ParitySetToRestore> =
-                (FileDataBlockMappings innerJoin DataBlocks innerJoin ParityDataBlockMappings innerJoin ParitySets)
+                (FileDataBlockMappings innerJoin FileDataBlocks innerJoin ParityDataBlockMappings innerJoin ParitySets)
                     .selectAll() // fixme optimise
                     .where { FileDataBlockMappings.fileHash eq fileHash }
                     .map { ParitySetToRestore(it[ParitySets.hash]) }
@@ -186,13 +186,13 @@ fun <StorageMedia> restoreCollection(
                     JoinType.INNER,
                     onColumn = ParityBlocks.hash,
                     otherColumn = ParitySets.parityPHash
-                ) innerJoin ParityLocations innerJoin StorageMedias)
+                ) innerJoin StorageParityLocations innerJoin StorageMedias)
                     .selectAll() // fixme optimise
                     .where { ParitySets.hash.inList(paritySetIds.map { it.paritySetId }) }
                     .map {
                         val storageDevice = storageDeviceByGuid[it[StorageMedias.guid]]
                         val parityLocationFilePath =
-                            storageDevice?.resolve(".repo/parity_blocks/${it[ParityLocations.hash]}.parity")
+                            storageDevice?.resolve(".repo/parity_blocks/${it[StorageParityLocations.hash]}.parity")
                         ParityBlockToRestore(
                             it[ParitySets.hash],
                             it[ParitySets.parityPHash],
@@ -213,7 +213,7 @@ fun <StorageMedia> restoreCollection(
             )
 
             val dataRestoreBlocks: Map<String, LiveDataToRestore> =
-                (ParityDataBlockMappings innerJoin DataBlocks innerJoin FileDataBlockMappings innerJoin FileRefs)
+                (ParityDataBlockMappings innerJoin FileDataBlocks innerJoin FileDataBlockMappings innerJoin FileRefs)
                     .selectAll() // fixme optimise
                     .where { ParityDataBlockMappings.paritySetId.inList(paritySetIds.map { it.paritySetId }) }
                     .associate {
@@ -223,7 +223,7 @@ fun <StorageMedia> restoreCollection(
                             it[FileDataBlockMappings.fileOffset],
                             it[FileDataBlockMappings.chunkSize],
                             it[FileDataBlockMappings.dataBlockHash],
-                            it[DataBlocks.size],
+                            it[FileDataBlocks.size],
                             it[FileDataBlockMappings.blockOffset]
                         )
                     }
@@ -235,15 +235,15 @@ fun <StorageMedia> restoreCollection(
                 val fileObject: ReadonlyFileSystem.File
             )
 
-            val restoreLocations = (FileLocations innerJoin StorageMedias).selectAll()
-                .where { FileLocations.hash.inList(dataRestoreBlocks.keys) }
+            val restoreLocations = (StorageFileLocations innerJoin StorageMedias).selectAll()
+                .where { StorageFileLocations.hash.inList(dataRestoreBlocks.keys) }
                 .mapNotNull {
                     val storageDeviceGUID = it[StorageMedias.guid]
                     val storageDevice = storageDeviceByGuid[storageDeviceGUID] ?: return@mapNotNull null
-                    val storageLocationFilePath = it[FileLocations.path]
+                    val storageLocationFilePath = it[StorageFileLocations.path]
 
                     // this can be used
-                    RestoreLocation(it[FileLocations.hash], storageDeviceGUID, storageDevice.resolve(storageLocationFilePath))
+                    RestoreLocation(it[StorageFileLocations.hash], storageDeviceGUID, storageDevice.resolve(storageLocationFilePath))
                 }.groupBy { it.fileHash }
 
             restoreLocations.forEach { println(it) }
@@ -329,7 +329,7 @@ fun <StorageMedia> restoreCollection(
                 throw IllegalStateException("Restored file does not have expected hash!")
             }
 
-            newLocation.write(fileVersion[FileVersions.path], restoredFileData)
+            newLocation.write(fileVersion[CatalogueFileVersions.path], restoredFileData)
 
 //
 //                .join(ParityDataBlockMappings, JoinType.INNER, onColumn = DataBlocks.hash, otherColumn = Parity)

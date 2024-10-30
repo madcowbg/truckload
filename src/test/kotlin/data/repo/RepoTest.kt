@@ -2,7 +2,7 @@ package data.repo
 
 import perftest.TestDataSettings
 import data.repo.sql.*
-import data.repo.sql.datablocks.DataBlocks
+import data.repo.sql.datablocks.FileDataBlocks
 import data.repo.sql.datablocks.FileDataBlockMappings
 import data.repo.sql.datablocks.FileRefs
 import data.repo.sql.parity.ParityBlocks
@@ -29,7 +29,7 @@ class RepoTest {
         }
 
         transaction(repo.db) {
-            assertEquals(listOf("whatevs"), DataBlocks.selectAll().map { it[DataBlocks.hash] })
+            assertEquals(listOf("whatevs"), FileDataBlocks.selectAll().map { it[FileDataBlocks.hash] })
             assertEquals(124123,
                 FileRefs.selectAll()
                     .where { FileRefs.hash.eq("dummy_file_hash") }
@@ -42,7 +42,7 @@ class RepoTest {
     }
 
     private fun insertDemoData() {
-        DataBlocks.insert {
+        FileDataBlocks.insert {
             it[hash] = "whatevs"
             it[size] = 4096
         }
@@ -70,7 +70,7 @@ class RepoTest {
         transaction(repo.db) {
             insertDemoData()
 
-            DataBlocks.insert {
+            FileDataBlocks.insert {
                 it[hash] = "unused"
                 it[size] = 8096
             }

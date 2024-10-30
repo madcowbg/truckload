@@ -3,8 +3,8 @@ package data
 import data.parity.ParitySet
 import data.parity.naiveBlockMapping
 import data.repo.sql.*
-import data.repo.sql.storagemedia.FileLocations
-import data.repo.sql.storagemedia.ParityLocations
+import data.repo.sql.storagemedia.StorageFileLocations
+import data.repo.sql.storagemedia.StorageParityLocations
 import data.repo.sql.storagemedia.StorageMedias
 import data.storage.LiveBlock
 import data.storage.ReadonlyFileSystem
@@ -65,7 +65,7 @@ fun <StorageMedia> storeCollectionBackup(
 
             val deviceGuid: String = checkNotNull(deviceGuids[device]) { "invalid device: $device" }
             paritySetsForDevice.forEach { paritySet ->
-                ParityLocations.insert {
+                StorageParityLocations.insert {
                     it[hash] = paritySet.parityBlock.hash.storeable
                     it[storageMedia] = deviceGuid
                 }
@@ -82,7 +82,7 @@ fun <StorageMedia> storeCollectionBackup(
             files.forEach { file ->
                 storageDevice.copy(file, file.path) // copy physical file to same path
 
-                FileLocations.insert {
+                StorageFileLocations.insert {
                     it[storageMedia] = deviceGuid
                     it[path] = file.path
                     it[hash] = file.hash.storeable
