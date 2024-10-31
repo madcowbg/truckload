@@ -2,7 +2,10 @@ package data.storage
 
 import java.security.MessageDigest
 
-class Hash(private val value: ByteArray) : Comparable<Hash> {
+open class Hash(private val value: ByteArray) : Comparable<Hash> {
+
+    @OptIn(ExperimentalStdlibApi::class)
+    constructor(value: String) : this(value.hexToByteArray(HexFormat.Default))
 
     @OptIn(ExperimentalStdlibApi::class)
     private val stringified: String = value.toHexString(HexFormat.Default)

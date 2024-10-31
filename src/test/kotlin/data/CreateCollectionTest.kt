@@ -64,7 +64,7 @@ fun assertEqualsFileSystem(actual: ReadonlyFileSystem, expected: ReadonlyFileSys
         comparisons++
         assertTrue(actual.digest(file.path) != null, "After $comparisons comparisons, file $file missing in actual!")
         assertTrue(
-            actual.existsWithHash(file.path, file.hash.storeable, logger),
+            actual.existsWithHash(file.path, file.hash, logger),
             "After $comparisons comparisons, file ${file.path} has different hash!"
         )
     }

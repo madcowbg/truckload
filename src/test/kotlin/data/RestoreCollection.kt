@@ -17,11 +17,18 @@ import data.storage.ReadonlyFileSystem
 import data.storage.WritableDeviceFileSystem
 import io.github.oshai.kotlinlogging.KLogger
 import org.jetbrains.exposed.sql.JoinType
+import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 
-data class FileVersion(val path: String, val hash: String, val size: Long)
+
+data class FileSize(private val value: Long) {
+    @Deprecated("use value itself")
+    fun toInt(): Int = value.toInt()
+}
+
+data class FileVersion(val path: String, val hash: Hash, val size: FileSize)
 
 fun <StorageMedia> restoreCollection(
     collectionRepo: StoredRepo,
@@ -36,13 +43,13 @@ fun <StorageMedia> restoreCollection(
                 .associate { (it[StorageMedias.label].toInt() as StorageMedia) to it[StorageMedias.guid] }
         val storageDeviceByGuid = storageDevices.mapKeys { storageDeviceGUIDs[it.key]!! }
 
-        (CatalogueFileVersions innerJoin FileRefs).selectAll().forEach { fileVersion ->
+        (CatalogueFileVersions innerJoin FileRefs).selectAll().forEach { row ->
             restoreFile(
                 storageDeviceByGuid,
                 FileVersion(
-                    fileVersion[CatalogueFileVersions.path],
-                    fileVersion[CatalogueFileVersions.hash],
-                    fileVersion[FileRefs.size]
+                    row[CatalogueFileVersions.path],
+                    row.catalogueVersionFile.hash,
+                    row.catalogueVersionFile.size
                 ),
                 newLocation,
                 logger
@@ -50,6 +57,17 @@ fun <StorageMedia> restoreCollection(
         }
     }
 }
+
+class CatalogueVersionFile(private val row: ResultRow) {
+    val hash
+        get() = Hash(row[CatalogueFileVersions.hash])
+    val size
+        get() = FileSize(row[FileRefs.size])
+}
+
+private val ResultRow.catalogueVersionFile
+    get() = CatalogueVersionFile(this)
+
 
 fun restoreFile(
     storageDeviceByGuid: Map<String, ReadonlyFileSystem>,
@@ -62,13 +80,13 @@ fun restoreFile(
         logger.debug { "File exists: ${fileVersion.path}, checking digest..." }
     }
 
-    if (digest?.storeable == fileVersion.hash) {
+    if (digest == fileVersion.hash) {
         logger.debug { "File contents are the same!" }
         return
     }
 
     val storedPossibleLocations = StorageFileLocations.selectAll()
-        .where { StorageFileLocations.hash eq fileVersion.hash }
+        .where { StorageFileLocations.hash eq fileVersion.hash.storeable }
         .associate { it[StorageFileLocations.storageMedia] to it[StorageFileLocations.path] }
     logger.debug { "Found ${storedPossibleLocations.size} possible stored locations!" }
 
@@ -104,7 +122,7 @@ fun restoreFile(
 
     val necessaryDataBlocks: List<FileDataBlocksToRestore> =
         FileDataBlockMappings.selectAll()
-            .where { FileDataBlockMappings.fileHash eq fileVersion.hash }
+            .where { FileDataBlockMappings.fileHash eq fileVersion.hash.storeable }
             .map {
                 FileDataBlocksToRestore(
                     it[FileDataBlockMappings.fileOffset],
@@ -193,7 +211,6 @@ fun restoreFile(
         val fileOffset: Long,
         val chunkSize: Int,
         val dataBlockHash: String,
-//                val dataBlockSize: Int,
         val blockOffset: Int,
         val storageDeviceGUID: String,
         val filePath: String,
@@ -216,7 +233,6 @@ fun restoreFile(
                     it[FileDataBlockMappings.fileOffset],
                     it[FileDataBlockMappings.chunkSize],
                     it[FileDataBlockMappings.dataBlockHash],
-//                            it[FileDataBlocks.size],
                     it[FileDataBlockMappings.blockOffset],
                     it[StorageFileLocations.storageMedia],
                     storageLocationFilePath,
@@ -224,10 +240,7 @@ fun restoreFile(
                 )
             }
 
-//    fileDataBlocksForRestore.forEach(::logger.debug)
-
-//            val parityRestoreBlocksByParitySet = parityRestoreBlocks.groupBy { it.paritySetId }
-//            val dataRestoreBlocksByParitySet = dataRestoreFiles.groupBy { it.data.paritySetId }
+    fileDataBlocksForRestore.forEach { logger.debug { it } }
 
     val paritySetsPerBlockHash = paritySetsConstituents
         .groupBy { it.dataBlockHash }
@@ -235,8 +248,6 @@ fun restoreFile(
 
     val paritySetsConstituentsBySetId: Map<String, List<ParitySetConstituents>> =
         paritySetsConstituents.groupBy { it.paritySet.paritySetId }
-//    val paritySetDescParSetId = paritySetsDefinitionForNecessaryDataBlocks.associateBy { it.paritySetId }
-//    val paritySetsDataToRestorePerDataBlock = paritySetsConstituents.groupBy { it.dataBlockHash }
     val fileDataBlocksForRestorePerParitySetId = fileDataBlocksForRestore.groupBy { it.paritySetId }
     val parityBlocksForRestorePerParitySetId = parityBlocksForRestore.groupBy { it.paritySetId }
 
@@ -249,7 +260,6 @@ fun restoreFile(
             logger.debug("Trying restore with ${setsToUseForBlock.size} potential blocks...")
             setsToUseForBlock
                 .forEach { paritySet ->
-//                    val parityDescSet = paritySetsConstituentsBySetId[paritySet.paritySetId] ?: throw IllegalStateException("Missing set $paritySetId!")
                     logger.debug("Restoring by ${paritySet.paritySetId} with block size ${paritySet.blockSize}")
 
                     val fileDataBlocks =
@@ -358,7 +368,7 @@ fun restoreFile(
     }
 
     val restoredFileDigest = Hash.digest(restoredFileData)
-    if (restoredFileDigest.storeable != fileVersion.hash) {
+    if (restoredFileDigest != fileVersion.hash) {
         throw IllegalStateException("Restored file does not have expected hash!")
     }
 
@@ -367,7 +377,7 @@ fun restoreFile(
 
 fun ReadonlyFileSystem.existsWithHash(
     path: String,
-    fileHash: String,
+    fileHash: Hash,
     logger: KLogger
 ): Boolean {
     val existingDigest = this.digest(path)
@@ -375,7 +385,7 @@ fun ReadonlyFileSystem.existsWithHash(
         false
     } else {
         logger.debug("Found file to restore from... checking hash")
-        if (existingDigest.storeable != fileHash) {
+        if (existingDigest != fileHash) {
             logger.error("BAD HASH for $path!")
             false
         } else {
