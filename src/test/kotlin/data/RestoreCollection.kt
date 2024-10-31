@@ -15,12 +15,10 @@ import data.repo.sql.storagemedia.StorageFileLocations
 import data.repo.sql.storagemedia.StorageMedias
 import data.repo.sql.storagemedia.StorageParityLocations
 import data.storage.Hash
-import data.storage.LiveBlock
 import data.storage.ReadonlyFileSystem
 import data.storage.WritableDeviceFileSystem
 import io.github.oshai.kotlinlogging.KLogger
 import org.jetbrains.exposed.sql.JoinType
-import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -244,20 +242,20 @@ fun restoreFile(
     val parityBlocksForRestorePerParitySetId = parityBlocksForRestore.groupBy { it.paritySetId }
 
     val restoredBlocks: Map<Hash, ByteArray> =
-        necessaryDataBlocks.mapNotNull { liveBlock ->
+        necessaryDataBlocks.associate { liveBlock ->
             val setsToUseForBlock: List<ParitySetDefinition> =
                 paritySetsPerBlockHash[liveBlock.dataBlockHash]
                     ?: throw IllegalStateException("Cannot restore block ${liveBlock.dataBlockHash}, no parity set to use!")
 
             restoreLiveBlock(
+                liveBlock,
                 setsToUseForBlock,
-                logger,
                 fileDataBlocksForRestorePerParitySetId,
                 parityBlocksForRestorePerParitySetId,
                 paritySetsConstituentsBySetId,
-                liveBlock
+                logger
             )
-        }.toMap()
+        }
 
     writeRestoredFile(necessaryDataBlocks, restoredBlocks, logger, fileVersion, newLocation)
 }
@@ -298,12 +296,12 @@ private fun writeRestoredFile(
 }
 
 private fun restoreLiveBlock(
+    liveBlock: FileDataBlocksToRestore,
     setsToUseForBlock: List<ParitySetDefinition>,
-    logger: KLogger,
     fileDataBlocksForRestorePerParitySetId: Map<Hash, List<FileDataBlockForRestore>>,
     parityBlocksForRestorePerParitySetId: Map<Hash, List<ParityBlocksForRestore>>,
     paritySetsConstituentsBySetId: Map<Hash, List<ParitySetConstituents>>,
-    liveBlock: FileDataBlocksToRestore
+    logger: KLogger
 ): Pair<Hash, ByteArray> {
     logger.debug("Trying restore with ${setsToUseForBlock.size} potential parity blocks...")
     setsToUseForBlock
@@ -320,26 +318,11 @@ private fun restoreLiveBlock(
                     filesForBlockMultiDevices.forEach { logger.debug { it } }
 
                     filesForBlockMultiDevices.groupBy { it.storageDeviceGUID }
-                        .mapNotNull restoringOnDevice@{ (storageDeviceGUID, filesForBlock) ->
-                            logger.debug("Using $storageDeviceGUID with ${filesForBlock.size} files to restore...")
-                            filesForBlock.forEach { logger.debug { it } }
+                        .mapNotNull {
+                            logger.debug("Using $it.key with ${it.value.size} files to restore...")
+                            it.value.forEach { logger.debug { it } }
 
-                            val blockData = ByteArray(paritySet.blockSize)
-                            for (it in filesForBlock) {
-                                if (it.fileObject == null) {
-                                    logger.debug("missing file ${it.filePath} on ${it.storageDeviceGUID}")
-                                    return@restoringOnDevice null
-                                }
-
-                                val fileData =
-                                    it.fileObject.dataInRange(it.fileOffset, it.fileOffset + it.chunkSize)
-                                fileData.copyInto(blockData, it.blockOffset)
-                            }
-                            val restoredBlockHash = Hash.digest(blockData)
-                            check(restoredBlockHash == dataBlockHash) {
-                                "Restored digest $restoredBlockHash != $dataBlockHash!"
-                            }
-                            return@restoringOnDevice restoredBlockHash to blockData
+                            loadFileBlockFromDevice(paritySet, dataBlockHash, it.value, logger)
                         }.firstOrNull()
                 }.toMap()
 
@@ -393,6 +376,29 @@ private fun restoreLiveBlock(
         }
 
     throw IllegalStateException("Failed restoring block ${liveBlock.dataBlockHash}!")
+}
+
+private fun loadFileBlockFromDevice(
+    paritySet: ParitySetDefinition,
+    dataBlockHash: Hash,
+    filesForBlock: List<FileDataBlockForRestore>,
+    logger: KLogger
+): Pair<Hash, ByteArray>? {
+    val blockData = ByteArray(paritySet.blockSize)
+    for (it in filesForBlock) {
+        if (it.fileObject == null) {
+            logger.debug("missing file ${it.filePath} on ${it.storageDeviceGUID}")
+            return null
+        }
+
+        val fileData = it.fileObject.dataInRange(it.fileOffset, it.fileOffset + it.chunkSize)
+        fileData.copyInto(blockData, it.blockOffset)
+    }
+    val restoredBlockHash = Hash.digest(blockData)
+    check(restoredBlockHash == dataBlockHash) {
+        "Restored digest $restoredBlockHash != $dataBlockHash!"
+    }
+    return restoredBlockHash to blockData
 }
 
 
