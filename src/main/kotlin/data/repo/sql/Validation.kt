@@ -4,7 +4,7 @@ import data.repo.sql.catalogue.CatalogueFileVersions
 import data.repo.sql.datablocks.FileDataBlocks
 import data.repo.sql.datablocks.FileDataBlockMappings
 import data.repo.sql.datablocks.FileRefs
-import data.repo.sql.parity.ParityDataBlockMappings
+import data.repo.sql.parity.ParitySetFileDataBlockMapping
 import data.repo.sql.parity.ParitySets
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.count
@@ -90,9 +90,9 @@ fun StoredRepo.listOfIssues(): List<InvalidRepoData> {
             val paritySetHash = paritySet[ParitySets.hash]
             val numDeviceBlocksInSet = paritySet[ParitySets.numDeviceBlocks]
             val dataBlockIdxs =
-                ParityDataBlockMappings.selectAll()
-                    .where(ParityDataBlockMappings.paritySetId.eq(paritySetHash))
-                    .map { it[ParityDataBlockMappings.indexInSet] }.sorted()
+                ParitySetFileDataBlockMapping.selectAll()
+                    .where(ParitySetFileDataBlockMapping.paritySetId.eq(paritySetHash))
+                    .map { it[ParitySetFileDataBlockMapping.indexInSet] }.sorted()
 
             (0 until numDeviceBlocksInSet).filter { it !in dataBlockIdxs }.forEach {
                 report(InvalidRepoData("Data block index=$it is not available in ParityDataBlockMappings[$paritySetHash]"))

@@ -9,6 +9,7 @@ object ParitySets : Table("parity_sets") {
 
     override val primaryKey: PrimaryKey = PrimaryKey(hash)
 
+    val blockSize = integer("block_size").check { it.greater(0) }
     val numDeviceBlocks = integer("num_device_blocks").check { it.greater(0) }
     val parityPHash = reference("parity_p_hash", ParityBlocks.hash)
     val parityQHash = optReference("parity_q_hash", ParityBlocks.hash)

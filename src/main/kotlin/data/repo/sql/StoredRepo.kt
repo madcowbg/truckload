@@ -8,7 +8,7 @@ import data.repo.sql.datablocks.FileDataBlocks
 import data.repo.sql.datablocks.FileDataBlockMappings
 import data.repo.sql.datablocks.FileRefs
 import data.repo.sql.parity.ParityBlocks
-import data.repo.sql.parity.ParityDataBlockMappings
+import data.repo.sql.parity.ParitySetFileDataBlockMapping
 import data.repo.sql.parity.ParitySets
 import data.repo.sql.parity.ParityType
 import data.repo.sql.storagemedia.StorageParityLocations
@@ -46,7 +46,7 @@ class StoredRepo private constructor(val db: Database, val rootFolder: Path) {
                     FileDataBlockMappings,
                     ParityBlocks,
                     ParitySets,
-                    ParityDataBlockMappings,
+                    ParitySetFileDataBlockMapping,
                     CatalogueFileVersions,
                     StorageFileLocations,
                     StorageParityLocations,
@@ -181,11 +181,12 @@ fun insertComputedParitySets(storedRepo: StoredRepo, paritySets: List<ParitySet>
                 it[numDeviceBlocks] = paritySet.liveBlocks.size
                 it[parityPHash] = paritySet.parityBlock.hash.storeable
                 it[parityType] = ParityType.RAID5
+                it[blockSize] = parityBlock.size
             }
 
             for (idx in paritySet.liveBlocks.indices) {
                 val liveBlock = paritySet.liveBlocks[idx]
-                ParityDataBlockMappings.insertIgnore {
+                ParitySetFileDataBlockMapping.insertIgnore {
                     it[paritySetId] = paritySetHash.storeable
                     it[indexInSet] = idx
                     it[dataBlockHash] = liveBlock.hash.storeable

@@ -6,7 +6,7 @@ import data.repo.sql.datablocks.FileDataBlocks
 import data.repo.sql.datablocks.FileDataBlockMappings
 import data.repo.sql.datablocks.FileRefs
 import data.repo.sql.parity.ParityBlocks
-import data.repo.sql.parity.ParityDataBlockMappings
+import data.repo.sql.parity.ParitySetFileDataBlockMapping
 import data.repo.sql.parity.ParitySets
 import data.repo.sql.parity.ParityType
 import org.jetbrains.exposed.sql.*
@@ -91,9 +91,10 @@ class RepoTest {
                 it[numDeviceBlocks] = 2
                 it[parityPHash] = "some_parity"
                 it[parityQHash] = "some_other_parity"
+                it[blockSize] = 1
             }
 
-            ParityDataBlockMappings.insert {
+            ParitySetFileDataBlockMapping.insert {
                 it[dataBlockHash] = "whatevs"
                 it[indexInSet] = 2
                 it[paritySetId] = "some_parity_set_hash"

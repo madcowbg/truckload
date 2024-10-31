@@ -62,6 +62,7 @@ class WritableDeviceFileSystem(rootFolder: String): WritableFileSystem, DeviceFi
     }
 
     override fun write(toPath: String, data: ByteArray) {
+        root.resolve(toPath).parentFile.mkdirs()
         root.resolve(toPath).writeBytes(data)
     }
 }
