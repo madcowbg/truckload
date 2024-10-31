@@ -8,6 +8,7 @@ import org.jetbrains.exposed.sql.or
 
 object ParitySets : Table("parity_sets") {
     fun parityPHash(it: ResultRow): Hash = Hash(it[parityPHash])
+    fun hash(it: ResultRow): Hash = Hash(it[hash])
 
     val hash = text("hash")
 

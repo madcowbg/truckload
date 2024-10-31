@@ -37,7 +37,7 @@ fun <StorageMedia> restoreCollection(
         // fixme weird logic...
         val storageDeviceGUIDs =
             StorageMedias.selectAll()
-                .associate { (it[StorageMedias.label].toInt() as StorageMedia) to it[StorageMedias.guid] }
+                .associate { (it[StorageMedias.label].toInt() as StorageMedia) to StorageMedias.guid(it) }
         val storageDeviceByGuid = storageDevices.mapKeys { storageDeviceGUIDs[it.key]!! }
 
         (CatalogueFileVersions innerJoin FileRefs).selectAll().forEach { row ->
@@ -67,7 +67,7 @@ private val ResultRow.catalogueVersionFile
 
 
 fun restoreFile(
-    storageDeviceByGuid: Map<String, ReadonlyFileSystem>,
+    storageDeviceByGuid: Map<StorageDeviceGUID, ReadonlyFileSystem>,
     fileVersion: FileVersion,
     newLocation: WritableDeviceFileSystem,
     logger: KLogger
@@ -84,7 +84,7 @@ fun restoreFile(
 
     val storedPossibleLocations = StorageFileLocations.selectAll()
         .where { StorageFileLocations.hash eq fileVersion.hash.storeable }
-        .associate { it[StorageFileLocations.storageMedia] to it[StorageFileLocations.path] }
+        .associate { StorageFileLocations.storageMedia(it) to it[StorageFileLocations.path] }
     logger.debug { "Found ${storedPossibleLocations.size} possible stored locations!" }
 
     val usableLocations = storedPossibleLocations.mapNotNull { (storageDeviceGUID, storageDevicePath) ->
@@ -132,7 +132,7 @@ fun restoreFile(
     logger.debug("Will restore file ${fileVersion.hash} with ${necessaryDataBlocks.size} data blocks.")
 
     data class ParitySetDefinition(
-        val paritySetId: String,
+        val paritySetId: Hash,
         val blockSize: Int,
         val parityPHash: Hash,
         val numDeviceBlocks: Int
@@ -144,7 +144,7 @@ fun restoreFile(
             .where(ParitySetFileDataBlockMapping.dataBlockHash.inList(necessaryDataBlocks.map { it.dataBlockHash.storeable }))
             .map {
                 ParitySetDefinition(
-                    it[ParitySets.hash],
+                    ParitySets.hash(it),
                     it[ParitySets.blockSize],
                     ParitySets.parityPHash(it),
                     it[ParitySets.numDeviceBlocks]
@@ -160,11 +160,11 @@ fun restoreFile(
     )
     logger.debug("Loading all parity sets data...")
     val paritySetsConstituents = (ParitySetFileDataBlockMapping innerJoin ParitySets).selectAll()
-        .where(ParitySetFileDataBlockMapping.paritySetId.inList(paritySetsDefinitionForNecessaryDataBlocks.map { it.paritySetId }))
+        .where(ParitySetFileDataBlockMapping.paritySetId.inList(paritySetsDefinitionForNecessaryDataBlocks.map { it.paritySetId.storeable }))
         .map {
             ParitySetConstituents(
                 ParitySetDefinition(
-                    it[ParitySets.hash],
+                    ParitySets.hash(it),
                     it[ParitySets.blockSize],
                     ParitySets.parityPHash(it),
                     it[ParitySets.numDeviceBlocks]
@@ -177,7 +177,7 @@ fun restoreFile(
     paritySetsConstituents.forEach { logger.debug { it } }
 
     data class ParityBlocksForRestore(
-        val paritySetId: String,
+        val paritySetId: Hash,
         val hash: Hash,
         val file: ReadonlyFileSystem.File?
     )
@@ -189,13 +189,13 @@ fun restoreFile(
         otherColumn = ParityBlocks.hash
     ) innerJoin StorageParityLocations)
         .selectAll()
-        .where { ParitySets.hash.inList(paritySetsDefinitionForNecessaryDataBlocks.map { it.paritySetId }) }
+        .where { ParitySets.hash.inList(paritySetsDefinitionForNecessaryDataBlocks.map { it.paritySetId.storeable }) }
         .map {
-            val storageDeviceGUID = it[StorageParityLocations.storageMedia]
+            val storageDeviceGUID = StorageParityLocations.storageMedia(it)
             val storageDevice = storageDeviceByGuid[storageDeviceGUID]
 
             ParityBlocksForRestore(
-                it[ParitySets.hash],
+                ParitySets.hash(it),
                 ParityBlocks.hash(it),
                 storageDevice?.resolve(".repo/parity_blocks/${it[ParityBlocks.hash]}.parity")
             )
@@ -203,7 +203,7 @@ fun restoreFile(
     parityBlocksForRestore.forEach { logger.debug { it } }
 
     data class FileDataBlockForRestore(
-        val paritySetId: String,
+        val paritySetId: Hash,
         val fileHash: Hash,
         val fileOffset: Long,
         val chunkSize: Int,
@@ -218,14 +218,14 @@ fun restoreFile(
         (ParitySetFileDataBlockMapping innerJoin FileDataBlocks innerJoin FileDataBlockMappings innerJoin FileRefs
                 innerJoin StorageFileLocations)
             .selectAll()
-            .where(ParitySetFileDataBlockMapping.paritySetId.inList(paritySetsDefinitionForNecessaryDataBlocks.map { it.paritySetId }))
+            .where(ParitySetFileDataBlockMapping.paritySetId.inList(paritySetsDefinitionForNecessaryDataBlocks.map { it.paritySetId.storeable }))
             .map {
-                val storageDeviceGUID = it[StorageFileLocations.storageMedia]
+                val storageDeviceGUID = StorageFileLocations.storageMedia(it)
                 val storageDevice = storageDeviceByGuid[storageDeviceGUID]
                 val storageLocationFilePath = it[StorageFileLocations.path]
 
                 FileDataBlockForRestore(
-                    it[ParitySetFileDataBlockMapping.paritySetId],
+                    ParitySetFileDataBlockMapping.paritySetId(it),
                     FileDataBlockMappings.fileHash(it),
                     it[FileDataBlockMappings.fileOffset],
                     it[FileDataBlockMappings.chunkSize],
@@ -243,7 +243,7 @@ fun restoreFile(
         .groupBy { it.dataBlockHash }
         .mapValues { (_, constituents) -> constituents.map { it.paritySet }.distinct() }
 
-    val paritySetsConstituentsBySetId: Map<String, List<ParitySetConstituents>> =
+    val paritySetsConstituentsBySetId: Map<Hash, List<ParitySetConstituents>> =
         paritySetsConstituents.groupBy { it.paritySet.paritySetId }
     val fileDataBlocksForRestorePerParitySetId = fileDataBlocksForRestore.groupBy { it.paritySetId }
     val parityBlocksForRestorePerParitySetId = parityBlocksForRestore.groupBy { it.paritySetId }

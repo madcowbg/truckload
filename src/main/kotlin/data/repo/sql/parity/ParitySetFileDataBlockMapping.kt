@@ -7,6 +7,7 @@ import org.jetbrains.exposed.sql.Table
 
 object ParitySetFileDataBlockMapping: Table("parity_data_block_mappings") {
     fun dataBlockHash(it: ResultRow): Hash = Hash(it[dataBlockHash])
+    fun paritySetId(it: ResultRow): Hash = Hash(it[paritySetId])
 
     val paritySetId = reference("parity_set", ParitySets.hash)
     val indexInSet = integer("index_in_set").check {it.greaterEq(0)}
