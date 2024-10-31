@@ -304,76 +304,75 @@ private fun restoreLiveBlock(
     logger: KLogger
 ): Pair<Hash, ByteArray> {
     logger.debug("Trying restore with ${setsToUseForBlock.size} potential parity blocks...")
-    setsToUseForBlock
-        .forEach { paritySet ->
-            logger.debug("Restoring by ${paritySet.paritySetId} with block size ${paritySet.blockSize}")
+    for (paritySet in setsToUseForBlock) {
+        logger.debug("Restoring by ${paritySet.paritySetId} with block size ${paritySet.blockSize}")
 
-            val fileDataBlocks =
-                fileDataBlocksForRestorePerParitySetId[paritySet.paritySetId] ?: return@forEach
-            logger.debug("Restoring by ${paritySet.paritySetId} with ${fileDataBlocks.size} potential file blocks...")
+        val fileDataBlocks =
+            fileDataBlocksForRestorePerParitySetId[paritySet.paritySetId] ?: continue
+        logger.debug("Restoring by ${paritySet.paritySetId} with ${fileDataBlocks.size} potential file blocks...")
 
-            val filesBlockData: Map<Hash, ByteArray> = fileDataBlocks.groupBy { it.dataBlockHash }
-                .mapNotNull { (dataBlockHash, filesForBlockMultiDevices) ->
-                    logger.debug("Restoring with $dataBlockHash with ${filesForBlockMultiDevices.size} potential blocks...")
-                    filesForBlockMultiDevices.forEach { logger.debug { it } }
+        val filesBlockData: Map<Hash, ByteArray> = fileDataBlocks.groupBy { it.dataBlockHash }
+            .mapNotNull { (dataBlockHash, filesForBlockMultiDevices) ->
+                logger.debug("Restoring with $dataBlockHash with ${filesForBlockMultiDevices.size} potential blocks...")
+                filesForBlockMultiDevices.forEach { logger.debug { it } }
 
-                    filesForBlockMultiDevices.groupBy { it.storageDeviceGUID }
-                        .mapNotNull {
-                            logger.debug("Using $it.key with ${it.value.size} files to restore...")
-                            it.value.forEach { logger.debug { it } }
+                filesForBlockMultiDevices.groupBy { it.storageDeviceGUID }
+                    .mapNotNull {
+                        logger.debug("Using $it.key with ${it.value.size} files to restore...")
+                        it.value.forEach { logger.debug { it } }
 
-                            loadFileBlockFromDevice(paritySet, dataBlockHash, it.value, logger)
-                        }.firstOrNull()
-                }.toMap()
+                        loadFileBlockFromDevice(paritySet, dataBlockHash, it.value, logger)
+                    }.firstOrNull()
+            }.toMap()
 
-            val availableRecoveredBlock = filesBlockData[liveBlock.dataBlockHash]
-            if (availableRecoveredBlock != null) {
-                logger.info { "File block is actually available! Returning..." }
-                return@restoreLiveBlock liveBlock.dataBlockHash to availableRecoveredBlock
-            }
-
-            val parityBlocks = parityBlocksForRestorePerParitySetId[paritySet.paritySetId] ?: return@forEach
-            logger.debug("Restoring by ${paritySet.paritySetId} with ${fileDataBlocks.size} potential parity blocks...")
-
-            val parityBlocksData = parityBlocks
-                .mapNotNull { parityBlock ->
-                    parityBlock.file?.let {
-                        parityBlock.hash to it.dataInRange(
-                            0,
-                            it.fileSize
-                        )
-                    }
-                }
-                .toMap()
-
-            logger.debug("Loaded ${parityBlocksData.size} potential blocks...")
-
-            val paritySetConstituents: List<ParitySetConstituents> =
-                paritySetsConstituentsBySetId[paritySet.paritySetId]
-                    ?: throw IllegalStateException("Missing parity set constituents for ${paritySet.paritySetId}!")
-
-            if (paritySetConstituents.find { it.dataBlockHash == liveBlock.dataBlockHash } == null) {
-                throw IllegalStateException("missing data block hash ${liveBlock.dataBlockHash} in restore set?!")
-            }
-
-            val alignedBlocks: List<ByteArray> = paritySetConstituents
-                .filter { it.dataBlockHash != liveBlock.dataBlockHash }
-                .groupBy { it.indexInSet }
-                .mapValues { (_, candidates) -> candidates.firstNotNullOf { filesBlockData[it.dataBlockHash] } }
-                .entries.sortedBy { it.key }.map { it.value }.toList()
-
-            val parityBlockData = parityBlocksData[paritySet.parityPHash]
-                ?: throw IllegalStateException("Missing parity block data for ${paritySet.parityPHash}")
-
-            val restoredBlock = restoreBlock(listOf(parityBlockData) + alignedBlocks)
-            val restoredHash = Hash.digest(restoredBlock)
-            if (liveBlock.dataBlockHash == restoredHash) {
-                logger.info { "Successful restore of block $liveBlock!" }
-            } else {
-                throw IllegalStateException("Failed restore of parityId ${paritySet.paritySetId}!")
-            }
-            return@restoreLiveBlock liveBlock.dataBlockHash to restoredBlock
+        val availableRecoveredBlock = filesBlockData[liveBlock.dataBlockHash]
+        if (availableRecoveredBlock != null) {
+            logger.info { "File block is actually available! Returning..." }
+            return liveBlock.dataBlockHash to availableRecoveredBlock
         }
+
+        val parityBlocks = parityBlocksForRestorePerParitySetId[paritySet.paritySetId] ?: continue
+        logger.debug("Restoring by ${paritySet.paritySetId} with ${fileDataBlocks.size} potential parity blocks...")
+
+        val parityBlocksData = parityBlocks
+            .mapNotNull { parityBlock ->
+                parityBlock.file?.let {
+                    parityBlock.hash to it.dataInRange(
+                        0,
+                        it.fileSize
+                    )
+                }
+            }
+            .toMap()
+
+        logger.debug("Loaded ${parityBlocksData.size} potential blocks...")
+
+        val paritySetConstituents: List<ParitySetConstituents> =
+            paritySetsConstituentsBySetId[paritySet.paritySetId]
+                ?: throw IllegalStateException("Missing parity set constituents for ${paritySet.paritySetId}!")
+
+        if (paritySetConstituents.find { it.dataBlockHash == liveBlock.dataBlockHash } == null) {
+            throw IllegalStateException("missing data block hash ${liveBlock.dataBlockHash} in restore set?!")
+        }
+
+        val alignedBlocks: List<ByteArray> = paritySetConstituents
+            .filter { it.dataBlockHash != liveBlock.dataBlockHash }
+            .groupBy { it.indexInSet }
+            .mapValues { (_, candidates) -> candidates.firstNotNullOf { filesBlockData[it.dataBlockHash] } }
+            .entries.sortedBy { it.key }.map { it.value }.toList()
+
+        val parityBlockData = parityBlocksData[paritySet.parityPHash]
+            ?: throw IllegalStateException("Missing parity block data for ${paritySet.parityPHash}")
+
+        val restoredBlock = restoreBlock(listOf(parityBlockData) + alignedBlocks)
+        val restoredHash = Hash.digest(restoredBlock)
+        if (liveBlock.dataBlockHash == restoredHash) {
+            logger.info { "Successful restore of block $liveBlock!" }
+        } else {
+            throw IllegalStateException("Failed restore of parityId ${paritySet.paritySetId}!")
+        }
+        return liveBlock.dataBlockHash to restoredBlock
+    }
 
     throw IllegalStateException("Failed restoring block ${liveBlock.dataBlockHash}!")
 }
