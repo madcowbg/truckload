@@ -1,10 +1,14 @@
 package data.repo.sql.parity
 
+import data.storage.Hash
+import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.or
 
 object ParitySets : Table("parity_sets") {
+    fun parityPHash(it: ResultRow): Hash = Hash(it[parityPHash])
+
     val hash = text("hash")
 
     override val primaryKey: PrimaryKey = PrimaryKey(hash)

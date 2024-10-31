@@ -134,7 +134,7 @@ fun restoreFile(
     data class ParitySetDefinition(
         val paritySetId: String,
         val blockSize: Int,
-        val parityPHash: String,
+        val parityPHash: Hash,
         val numDeviceBlocks: Int
     )
 
@@ -146,7 +146,7 @@ fun restoreFile(
                 ParitySetDefinition(
                     it[ParitySets.hash],
                     it[ParitySets.blockSize],
-                    it[ParitySets.parityPHash],
+                    ParitySets.parityPHash(it),
                     it[ParitySets.numDeviceBlocks]
                 )
             }.distinct()
@@ -166,7 +166,7 @@ fun restoreFile(
                 ParitySetDefinition(
                     it[ParitySets.hash],
                     it[ParitySets.blockSize],
-                    it[ParitySets.parityPHash],
+                    ParitySets.parityPHash(it),
                     it[ParitySets.numDeviceBlocks]
                 ),
                 ParitySetFileDataBlockMapping.dataBlockHash(it),
@@ -178,7 +178,7 @@ fun restoreFile(
 
     data class ParityBlocksForRestore(
         val paritySetId: String,
-        val hash: String,
+        val hash: Hash,
         val file: ReadonlyFileSystem.File?
     )
     logger.debug("Loading parity blocks information...")
@@ -196,7 +196,7 @@ fun restoreFile(
 
             ParityBlocksForRestore(
                 it[ParitySets.hash],
-                it[ParityBlocks.hash],
+                ParityBlocks.hash(it),
                 storageDevice?.resolve(".repo/parity_blocks/${it[ParityBlocks.hash]}.parity")
             )
         }
