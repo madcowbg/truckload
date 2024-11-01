@@ -25,6 +25,11 @@ dependencies {
     implementation 'io.github.oshai:kotlin-logging-jvm:7.0.0'
     implementation 'org.slf4j:slf4j-simple:2.0.3'
 
+    // dependencies for MemFS (WinFSP)
+    implementation 'com.github.jnr:jnr-ffi:2.2.13'
+    implementation 'com.github.jnr:jnr-posix:3.1.15'
+    implementation files('lib/jnr-winfsp-0.21.0.jar')
+
     testImplementation 'org.jetbrains.kotlin:kotlin-test'
 }
 
