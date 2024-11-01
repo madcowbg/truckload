@@ -195,8 +195,8 @@ public class WinFspMemFS extends WinFspStubFS {
             file.setFileSize(0);
 
             WinSysTime now = WinSysTime.now();
-            file.setAccessTime(now);
-            file.setWriteTime(now);
+            file.setLastAccessTime(now);
+            file.setLastWriteTime(now);
             file.setChangeTime(now);
 
             FileInfo info = file.generateFileInfo();
@@ -221,10 +221,10 @@ public class WinFspMemFS extends WinFspStubFS {
                 WinSysTime now = WinSysTime.now();
 
                 if (flags.contains(CleanupFlags.SET_LAST_ACCESS_TIME))
-                    memObj.setAccessTime(now);
+                    memObj.setLastAccessTime(now);
 
                 if (flags.contains(CleanupFlags.SET_LAST_WRITE_TIME))
-                    memObj.setWriteTime(now);
+                    memObj.setLastWriteTime(now);
 
                 if (flags.contains(CleanupFlags.SET_CHANGE_TIME))
                     memObj.setChangeTime(now);
@@ -349,9 +349,9 @@ public class WinFspMemFS extends WinFspStubFS {
             if (creationTime.get() != 0)
                 obj.setCreationTime(creationTime);
             if (lastAccessTime.get() != 0)
-                obj.setAccessTime(lastAccessTime);
+                obj.setLastAccessTime(lastAccessTime);
             if (lastWriteTime.get() != 0)
-                obj.setWriteTime(lastWriteTime);
+                obj.setLastWriteTime(lastWriteTime);
             if (changeTime.get() != 0)
                 obj.setChangeTime(changeTime);
 
