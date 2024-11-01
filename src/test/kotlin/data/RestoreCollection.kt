@@ -285,38 +285,7 @@ private fun restoreLiveBlock(
             val parityPHash = ParitySets.parityPHash(row)
             logger.debug("Restoring by $paritySetId with block size $blockSize")
 
-            val filesBlockData: Map<Hash, ByteArray> =
-                (ParitySetFileDataBlockMapping innerJoin FileDataBlocks innerJoin FileDataBlockMappings innerJoin FileRefs
-                        innerJoin StorageFileLocations)
-                    .selectAll()
-                    .where(ParitySetFileDataBlockMapping.paritySetId.eq(paritySetId.storeable))
-                    .map {
-                        val file = storageCatalogue
-                            .findFileIfExists(
-                                StorageFileLocations.storageMedia(it),
-                                it[StorageFileLocations.path],
-                                logger
-                            )
-                        BlockToStorageToChunks(
-                            FileDataBlockMappings.dataBlockHash(it),
-                            StorageFileLocations.storageMedia(it),
-                            FileChunksForRestore(
-                                file,
-                                it[FileDataBlockMappings.fileOffset],
-                                it[FileDataBlockMappings.chunkSize],
-                                it[FileDataBlockMappings.blockOffset]
-                            )
-                        )
-                    }
-                    .groupBy { it.dataBlockHash }
-                    .mapValues { (_, value) ->
-                        value.groupBy { it.storageMedia }
-                            .mapValues { (_, value) -> value.map { it.fileChunksForRestore } }
-                    }
-                    .mapNotNull { (dataBlockHash, filesForBlockMultiDevices) ->
-                        loadBlockFromLiveFile(dataBlockHash, blockSize, filesForBlockMultiDevices, logger)
-                    }.toMap()
-
+            val filesBlockData: Map<Hash, ByteArray> = loadExistingFileBlockData(paritySetId, storageCatalogue, logger, blockSize)
             logger.debug { "Restoring by $paritySetId with ${filesBlockData.size} potential file blocks..." }
 
             val parityBlocks = parityBlocksForRestorePerParitySetId[paritySetId] ?: return@forEach
@@ -339,6 +308,48 @@ private fun restoreLiveBlock(
 
     throw IllegalStateException("Failed restoring!")
 }
+
+private fun loadExistingFileBlockData(
+    paritySetId: Hash,
+    storageCatalogue: StorageCatalogue,
+    logger: KLogger,
+    blockSize: Int
+) = loadSetToStorageToChunkMap(paritySetId, storageCatalogue, logger)
+    .mapNotNull { (dataBlockHash, filesForBlockMultiDevices) ->
+        loadBlockFromLiveFile(dataBlockHash, blockSize, filesForBlockMultiDevices, logger)
+    }.toMap()
+
+private fun loadSetToStorageToChunkMap(
+    paritySetId: Hash,
+    storageCatalogue: StorageCatalogue,
+    logger: KLogger
+): Map<Hash, Map<StorageDeviceGUID, List<FileChunksForRestore>>> = (ParitySetFileDataBlockMapping
+        innerJoin FileDataBlocks innerJoin FileDataBlockMappings innerJoin FileRefs innerJoin StorageFileLocations)
+    .selectAll()
+    .where(ParitySetFileDataBlockMapping.paritySetId.eq(paritySetId.storeable))
+    .map {
+        val file = storageCatalogue
+            .findFileIfExists(
+                StorageFileLocations.storageMedia(it),
+                it[StorageFileLocations.path],
+                logger
+            )
+        BlockToStorageToChunks(
+            FileDataBlockMappings.dataBlockHash(it),
+            StorageFileLocations.storageMedia(it),
+            FileChunksForRestore(
+                file,
+                it[FileDataBlockMappings.fileOffset],
+                it[FileDataBlockMappings.chunkSize],
+                it[FileDataBlockMappings.blockOffset]
+            )
+        )
+    }
+    .groupBy { it.dataBlockHash }
+    .mapValues { (_, value) ->
+        value.groupBy { it.storageMedia }
+            .mapValues { (_, value) -> value.map { it.fileChunksForRestore } }
+    }
 
 private fun loadBlockFromLiveFile(
     dataBlockHash: Hash,
