@@ -103,6 +103,15 @@ fun restoreFile(
 
     logger.info { "Backup file ${fileVersion.path} is not available, restoring via parity checks." }
 
+    restoreFile(fileVersion, storageCatalogue, newLocation, logger)
+}
+
+private fun restoreFile(
+    fileVersion: FileVersion,
+    storageCatalogue: StorageCatalogue,
+    newLocation: WritableDeviceFileSystem,
+    logger: KLogger
+) {
     logger.debug("Finding out what data blocks we need to restore the file...")
 
     val necessaryDataBlocks: List<FileDataBlocksToRestore> =
@@ -121,12 +130,10 @@ fun restoreFile(
 
     val restoredBlocks: Map<Hash, FullSetBlockData> =
         necessaryDataBlocks.associate { liveBlock ->
-            liveBlock.dataBlockHash to restoreLiveBlock(
-                liveBlock.dataBlockHash,
-                storageCatalogue,
-                logger
-            )
-                .apply { check(liveBlock.dataBlockHash in this) { "missing data block hash ${liveBlock.dataBlockHash} in restore set?!" } }
+            liveBlock.dataBlockHash to restoreLiveBlock(liveBlock.dataBlockHash, storageCatalogue, logger)
+                .apply {
+                    check(liveBlock.dataBlockHash in this) { "missing data block hash ${liveBlock.dataBlockHash} in restore set?!" }
+                }
         }
 
     writeRestoredFile(necessaryDataBlocks, restoredBlocks, logger, fileVersion, newLocation)
