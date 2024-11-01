@@ -59,7 +59,7 @@ class FileObj(parent: DirObj?, path: Path, securityDescriptor: ByteArray, repars
         val bytesToRead = min((fileSize - offset).toDouble(), size.toDouble()).toInt()
         buffer.put(0, data, offset, bytesToRead)
 
-        setReadTime()
+        lastAccessTime = WinSysTime.now()
 
         return bytesToRead
     }
@@ -74,7 +74,7 @@ class FileObj(parent: DirObj?, path: Path, securityDescriptor: ByteArray, repars
 
         buffer[0, data, begOffset, size]
 
-        setWriteTime()
+        lastWriteTime = WinSysTime.now()
 
         return size
     }
@@ -89,17 +89,9 @@ class FileObj(parent: DirObj?, path: Path, securityDescriptor: ByteArray, repars
 
         buffer[0, data, begOffset, transferredLength]
 
-        setWriteTime()
+        lastWriteTime = WinSysTime.now()
 
         return transferredLength
-    }
-
-    private fun setReadTime() {
-        lastAccessTime = WinSysTime.now()
-    }
-
-    private fun setWriteTime() {
-        lastWriteTime = WinSysTime.now()
     }
 
     companion object {
