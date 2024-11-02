@@ -5,13 +5,19 @@ import com.github.jnrwinfspteam.jnrwinfsp.service.ServiceException
 import com.github.jnrwinfspteam.jnrwinfsp.service.ServiceRunner
 import com.github.jnrwinfspteam.jnrwinfsp.util.NaturalOrderComparator
 import data.repo.sql.StoredRepo
+import data.repo.sql.catalogue.CatalogueFileVersions
 import jnr.ffi.Pointer
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.match
+import org.jetbrains.exposed.sql.selectAll
+import org.jetbrains.exposed.sql.transactions.transaction
 import java.io.OutputStream
 import java.io.PrintStream
 import java.nio.file.Path
 import java.util.*
 import java.util.concurrent.atomic.AtomicLong
 import java.util.function.Predicate
+import kotlin.io.path.isDirectory
+import kotlin.io.path.pathString
 
 class RepoFS @JvmOverloads constructor(val repo: StoredRepo, verbose: Boolean = true) : WinFspStubFS() {
     private val rootPath: Path = Path.of("\\").normalize()
@@ -29,10 +35,38 @@ class RepoFS @JvmOverloads constructor(val repo: StoredRepo, verbose: Boolean = 
         SecurityDescriptorHandler.securityDescriptorToBytes(ROOT_SECURITY_DESCRIPTOR),
         null
     )
-    private val objects = mapOf(rootPath.toString() to rootObj)
+
+    private val objects: Map<String, MemoryObj>
+
+    init {
+        objects = hashMapOf(rootPath.toString() to rootObj)
+        transaction(repo.db) {
+            CatalogueFileVersions.selectAll()
+                .map { row -> Path.of(CatalogueFileVersions.path(row)).normalize() }
+                .forEach { filePath ->
+                    if (filePath.parent == null) {
+                        verboseOut.println("Skipping $filePath as it is a root file.")
+                        return@forEach
+                    }
+
+                    val path = filePath.parent
+                    if (path.pathString.contains("\\")) {
+                        verboseOut.println("Skipping $path as it is not a root subfolder.")
+                        return@forEach
+                    }
+
+                    objects["\\" + path.pathString] = DirObj(
+                        rootObj,
+                        path,
+                        SecurityDescriptorHandler.securityDescriptorToBytes(ROOT_SECURITY_DESCRIPTOR),
+                        null
+                    )
+                }
+        }
+    }
 
     private val fsVolumeInfo: VolumeInfo
-       get() = VolumeInfo(
+        get() = VolumeInfo(
             MAX_FILE_NODES * MAX_FILE_SIZE,
             (MAX_FILE_NODES - objects.size) * MAX_FILE_SIZE,
             this.volumeLabel
@@ -582,8 +616,6 @@ class RepoFS @JvmOverloads constructor(val repo: StoredRepo, verbose: Boolean = 
     }
 
     companion object {
-
-
         private const val ROOT_SECURITY_DESCRIPTOR = "O:BAG:BAD:PAR(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;WD)"
         private val NATURAL_ORDER: Comparator<String?> = NaturalOrderComparator()
         private const val MAX_FILE_NODES: Long = 10240
