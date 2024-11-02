@@ -4,6 +4,7 @@ import com.github.jnrwinfspteam.jnrwinfsp.api.*
 import com.github.jnrwinfspteam.jnrwinfsp.service.ServiceException
 import com.github.jnrwinfspteam.jnrwinfsp.service.ServiceRunner
 import com.github.jnrwinfspteam.jnrwinfsp.util.NaturalOrderComparator
+import data.repo.sql.StoredRepo
 import jnr.ffi.Pointer
 import java.io.OutputStream
 import java.io.PrintStream
@@ -12,12 +13,11 @@ import java.util.*
 import java.util.concurrent.atomic.AtomicLong
 import java.util.function.Predicate
 
-class RepoFS @JvmOverloads constructor(verbose: Boolean = true) : WinFspStubFS() {
+class RepoFS @JvmOverloads constructor(val repo: StoredRepo, verbose: Boolean = true) : WinFspStubFS() {
     private val rootPath: Path = Path.of("\\").normalize()
     private val nextFileHandle: AtomicLong = AtomicLong(0)
 
-//    private var nextIndexNumber: Long = 1L
-    private var volumeLabel: String = "Repository"
+    private var volumeLabel: String = "Thin Repository"
 
     private val verboseOut: PrintStream = if (verbose) System.out else PrintStream(OutputStream.nullOutputStream())
 
@@ -31,8 +31,8 @@ class RepoFS @JvmOverloads constructor(verbose: Boolean = true) : WinFspStubFS()
     )
     private val objects = mapOf(rootPath.toString() to rootObj)
 
-    private val volumeInfo: VolumeInfo
-        get() = VolumeInfo(
+    private val fsVolumeInfo: VolumeInfo
+       get() = VolumeInfo(
             MAX_FILE_NODES * MAX_FILE_SIZE,
             (MAX_FILE_NODES - objects.size) * MAX_FILE_SIZE,
             this.volumeLabel
@@ -41,7 +41,7 @@ class RepoFS @JvmOverloads constructor(verbose: Boolean = true) : WinFspStubFS()
     override fun getVolumeInfo(): VolumeInfo {
         verboseOut.println("== GET VOLUME INFO ==")
         return synchronized(lock) {
-            volumeInfo
+            fsVolumeInfo
         }
     }
 
@@ -49,7 +49,7 @@ class RepoFS @JvmOverloads constructor(verbose: Boolean = true) : WinFspStubFS()
         verboseOut.printf("== SET VOLUME LABEL == %s%n", volumeLabel)
         synchronized(lock) {
             this.volumeLabel = volumeLabel
-            return volumeInfo
+            return fsVolumeInfo
         }
     }
 
@@ -600,7 +600,7 @@ fun main(args: Array<String>) {
     var mountPoint: Path? = null
     if (args.isNotEmpty()) mountPoint = Path.of(args[0])
 
-    val memFS = RepoFS(true)
+    val memFS = RepoFS(StoredRepo.connect("C:\\Users\\Bono\\.experiments\\test_collection\\.repo"), true)
     System.out.printf("Mounting %s ...%n", mountPoint ?: "")
     ServiceRunner.mountLocalDriveAsService(
         "RepositoryFS", memFS, mountPoint, MountOptions()
