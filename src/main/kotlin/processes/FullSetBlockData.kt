@@ -1,4 +1,4 @@
-package data
+package processes
 
 import data.storage.Hash
 

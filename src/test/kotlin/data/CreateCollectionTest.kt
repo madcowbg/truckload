@@ -9,6 +9,9 @@ import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.junit.jupiter.api.Test
 import perftest.TestDataSettings
+import processes.existsWithHash
+import processes.restoreCollection
+import processes.storeCollectionBackup
 import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

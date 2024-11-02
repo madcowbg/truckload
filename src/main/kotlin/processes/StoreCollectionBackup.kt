@@ -1,4 +1,4 @@
-package data
+package processes
 
 import data.parity.ParitySet
 import data.parity.naiveBlockMapping
