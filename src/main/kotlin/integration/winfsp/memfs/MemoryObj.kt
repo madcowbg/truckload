@@ -25,7 +25,7 @@ abstract class MemoryObj(
 
     var changeTime: WinSysTime
 
-    var indexNumber: Long
+    var indexNumber: Long = 0
 
     init {
         val now = WinSysTime.now()
@@ -33,7 +33,6 @@ abstract class MemoryObj(
         this.lastAccessTime = now
         this.lastWriteTime = now
         this.changeTime = now
-        this.indexNumber = 0
 
         if (reparsePoint != null) {
             this.reparseData = reparsePoint.data
