@@ -49,7 +49,7 @@ open class DeviceFileSystem(rootFolder: String) : ReadonlyFileSystem {
         }
 
     override fun digest(path: String): Hash? = root.resolve(path).digest()
-    override fun existsWithHash(path: String): Boolean = root.resolve(path).exists()
+    override fun exists(path: String): Boolean = root.resolve(path).exists()
 }
 
 class WritableDeviceFileSystem(rootFolder: String): WritableFileSystem, DeviceFileSystem(rootFolder) {

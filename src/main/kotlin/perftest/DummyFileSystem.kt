@@ -12,18 +12,23 @@ class DummyFileSystem(
     filenameLength: Int = 100,
     seed: Long = 0
 ) : ReadonlyFileSystem {
-    inner class DummyFile(override val path: String, override val fileSize: Long) : ReadonlyFileSystem.File {
+    inner class DummyFile(override val path: String, override var fileSize: Long) : ReadonlyFileSystem.File {
         override val location: ReadonlyFileSystem = this@DummyFileSystem
-        override val hash: Hash by lazy { Hash(dataInRange(0, fileSize)) }
 
-        private val data: ByteArray by lazy {
+        internal var data: ByteArray = ByteArray(fileSize.toInt()).also {
             val generator = Random(path.hashCode())
-            val data = ByteArray(fileSize.toInt())
-            generator.nextBytes(data)
-            return@lazy data
+            generator.nextBytes(it)
         }
+            set(value) {
+                field = value
+                fileSize = field.size.toLong()
+                hash = Hash.digest(field)
+            }
 
+        override var hash: Hash = Hash.digest(dataInRange(0, fileSize))
         override fun dataInRange(from: Long, to: Long): ByteArray = data.sliceArray(from.toInt() until to.toInt())
+
+        override fun toString(): String = "DummyFile[$fileSize, $path]"
     }
 
     private val files = mutableMapOf<String, DummyFile>()
@@ -42,5 +47,14 @@ class DummyFileSystem(
 
     override fun walk(): Sequence<ReadonlyFileSystem.File> = files.values.sortedBy { it.path }.asSequence()
     override fun digest(path: String): Hash? = files[path]?.hash
-    override fun existsWithHash(path: String): Boolean = path in files
+    override fun exists(path: String): Boolean = path in files
+
+    fun removeRandomFile() {
+        files.keys.remove(files.keys.first())
+    }
+
+    fun changeRandomFile() {
+        val randomFile = files.values.first()
+        randomFile.data = randomFile.data.sliceArray(0..1000)
+    }
 }
