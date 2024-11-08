@@ -3,15 +3,17 @@ package examples
 import glm_.vec4.Vec4
 import gln.checkError
 import gln.glViewport
-import imgui.ConfigFlag
-import imgui.DEBUG
-import imgui.ImGui
+import gui.AppSettings
+import imgui.*
+import imgui.ImGui.sameLine
 import imgui.api.slider
 import imgui.classes.Context
-import imgui.div
 import imgui.dsl.button
+import imgui.dsl.treeNode
 import imgui.impl.gl.ImplGL3
 import imgui.impl.glfw.ImplGlfw
+import kotlinx.serialization.*
+import kotlinx.serialization.json.Json
 import org.lwjgl.opengl.GL
 import org.lwjgl.opengl.GL11.*
 import org.lwjgl.system.Platform
@@ -20,6 +22,9 @@ import uno.glfw.GlfwWindow
 import uno.glfw.Hints
 import uno.glfw.VSync
 import uno.glfw.glfw
+import java.io.BufferedReader
+import java.io.File
+import java.io.InputStreamReader
 
 // Data
 lateinit var gAppWindow: GlWindow
@@ -33,6 +38,70 @@ var showAnotherWindow = false
 var clearColor = Vec4(0.45f, 0.55f, 0.6f, 1f)
 var f = 0f
 var counter = 0
+
+
+//{ "command":"whereis",
+//    "error-messages":[],
+//    "file":"Movies/The Hobbit - The Cardinal Cut (Full).mp4",
+//    "input":["Movies\\The Hobbit - The Cardinal Cut (Full).mp4"],
+//    "key":"SHA256E-s6324584102--5197b1b31acb47b93f6f7160a998cf969dbf174bc3685cf00cdf5c3a83de3112.mp4",
+//    "note":"2 copies\n\t18d7bf7b-70f0-4b14-86a7-c53d334bd581 -- Backups Vol.02/Videos [here]\n\t3dad22f3-41f0-48cb-ac9b-1b2b7affee54 -- bono.nonchev@4fb7a0458d7a:/git-annex-repos/Videos [origin]\n",
+//    "success":true, "untrusted":[],
+//    "whereis":[
+//        { "description":"Backups Vol.02/Videos", "here":true, "urls":[], "uuid":"18d7bf7b-70f0-4b14-86a7-c53d334bd581" },
+//        { "description":"bono.nonchev@4fb7a0458d7a:/git-annex-repos/Videos [origin]", "here":false, "urls":[], "uuid":"3dad22f3-41f0-48cb-ac9b-1b2b7affee54" }
+//    ]
+//}
+
+@Serializable
+data class WhereisLocation(val description: String, val here: Boolean, val urls: List<String>, val uuid: String)
+
+@Serializable
+data class WhereisQueryResult(val whereis: List<WhereisLocation>)
+
+
+sealed interface RepoItem {
+    val name: String
+}
+
+private val jsonDecoder = Json { ignoreUnknownKeys = true }
+
+class Repo(private val root: File) {
+    inner class RepoFile(private var file: File) : RepoItem {
+        override val name: String
+            get() = file.name
+
+        val whereis: WhereisQueryResult? by lazy {
+            val process = ProcessBuilder("git", "annex", "whereis", "--json", file.relativeTo(root).path)
+                .directory(root)
+                .apply { print(this.command()) }
+                .start()
+            process.waitFor()
+
+            if (process.exitValue() != 0) {
+                println(BufferedReader(InputStreamReader(process.errorStream)).readText())
+                null
+            } else {
+                val result = BufferedReader(InputStreamReader(process.inputStream)).readText()
+                jsonDecoder.decodeFromString(WhereisQueryResult.serializer(), result)
+            }
+        }
+    }
+
+    inner class RepoDir(private var dir: File) : RepoItem {
+        val files: List<RepoFile> by lazy {
+            dir.listFiles()?.filter { it.isFile }?.map { RepoFile(it) } ?: listOf()
+        }
+
+        val subdirectories: List<RepoDir> by lazy {
+            dir.listFiles()?.filter { it.isDirectory }?.map { RepoDir(it) } ?: listOf()
+        }
+
+        override val name: String
+            get() = dir.name
+    }
+
+}
 
 // Main code
 fun main() {
@@ -109,6 +178,7 @@ fun main() {
     // - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
     // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
 
+    var selectedFile: Repo.RepoFile? = null
     // Main loop
     // [JVM] This automatically also polls events, swaps buffers and gives a MemoryStack instance for the i-th frame
     gAppWindow.loop {
@@ -123,8 +193,51 @@ fun main() {
         if (showDemoWindow)
             ImGui.showDemoWindow(::showDemoWindow)
 
+
         // 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
         run {
+            ImGui.begin("Settings")
+            ImGui.inputText("Root Folder", AppSettings.repoFolderSetting)
+            ImGui.end()
+
+            ImGui.begin("Repo contents")
+            ImGui.text("Listing ${AppSettings.repoFolder} ...")
+            fun Repo.show(item: RepoItem) {
+                when (item) {
+                    is Repo.RepoDir -> {
+                        treeNode(item.name) {
+                            item.subdirectories.forEach { show(it) }
+                            item.files.forEach { show(it) }
+                        }
+                    }
+
+                    is Repo.RepoFile -> {
+                        if (ImGui.button(item.name)) {
+                            selectedFile = item
+                        }
+                    }
+                }
+            }
+
+            val rootFolder = File(AppSettings.repoFolder)
+            Repo(rootFolder).let { it.show(it.RepoDir(rootFolder)) }
+            ImGui.end()
+
+            ImGui.begin("File details")
+            if (selectedFile != null) {
+                ImGui.text(selectedFile!!.name)
+                ImGui.separator()
+                selectedFile!!.whereis?.let{ that ->
+                    ImGui.text("Found ${that.whereis.size} locations.")
+                    that.whereis.forEach {
+                        ImGui.text(it.uuid); sameLine()
+                        ImGui.text(it.description); sameLine()
+                        ImGui.text("#URLs ${it.urls.size}")
+                    }
+                } ?: ImGui.text("Error reading whereis!")
+//                ImGui.inputTextMultiline("whereis", selectedFile!!.whereis.toString())
+            }
+            ImGui.end()
 
             ImGui.begin("Hello, world!")                          // Create a window called "Hello, world!" and append into it.
 
@@ -132,7 +245,10 @@ fun main() {
 //                    println("picking occured")
 
             ImGui.text("This is some useful text.")                // Display some text (you can use a format strings too)
-            ImGui.checkbox("Demo Window", ::showDemoWindow)             // Edit bools storing our window open/close state
+            ImGui.checkbox(
+                "Demo Window",
+                ::showDemoWindow
+            )             // Edit bools storing our window open/close state
             ImGui.checkbox("Another Window", ::showAnotherWindow)
 
             ImGui.slider("float", ::f, 0f, 1f)   // Edit 1 float using a slider from 0.0f to 1.0f
@@ -162,7 +278,12 @@ fun main() {
         // Rendering
         ImGui.render()
         glViewport(gAppWindow.framebufferSize)
-        glClearColor(clearColor.x * clearColor.w, clearColor.y * clearColor.w, clearColor.z * clearColor.w, clearColor.w)
+        glClearColor(
+            clearColor.x * clearColor.w,
+            clearColor.y * clearColor.w,
+            clearColor.z * clearColor.w,
+            clearColor.w
+        )
         glClear(GL_COLOR_BUFFER_BIT)
 
         implGl3.renderDrawData(ImGui.drawData!!)

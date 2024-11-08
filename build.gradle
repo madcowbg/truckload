@@ -2,8 +2,9 @@ import org.gradle.internal.os.OperatingSystem
 
 plugins {
     id 'org.jetbrains.kotlin.jvm' version '2.0.20'
-}
 
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.0.20'
+}
 group = 'org.example'
 version = '1.0-SNAPSHOT'
 
@@ -59,6 +60,12 @@ dependencies {
     runtimeOnly "org.lwjgl:lwjgl-openal::$lwjglNatives"
     runtimeOnly "org.lwjgl:lwjgl-opengl::$lwjglNatives"
     runtimeOnly "org.lwjgl:lwjgl-stb::$lwjglNatives"
+
+    // konfig
+    implementation "com.natpryce:konfig:1.6.10.0"
+
+    // serialization
+    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3"
 
     testImplementation 'org.jetbrains.kotlin:kotlin-test'
 }
