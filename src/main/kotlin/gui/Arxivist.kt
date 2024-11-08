@@ -6,6 +6,8 @@ import gln.glViewport
 import gui.AppSettings
 import imgui.*
 import imgui.ImGui.sameLine
+import imgui.ImGui.separator
+import imgui.ImGui.text
 import imgui.classes.Context
 import imgui.demo.DemoWindow
 import imgui.dsl.button
@@ -143,15 +145,15 @@ class Repo(val root: File) {
         override val name: String
             get() = file.name
 
-        val whereis: Future<WhereisQueryResult?> by lazy {
+        val whereis: CompletableFuture<WhereisQueryResult?> by lazy {
             Git.ask(root, WhereisQueryResult.serializer(), "whereis", "--json", file.relativeTo(root).path)
         }
 
-        val info: Future<InfoQueryResult?> by lazy {
+        val info: CompletableFuture<InfoQueryResult?> by lazy {
             Git.ask(root, InfoQueryResult.serializer(), "info", "--json", file.relativeTo(root).path)
         }
 
-        val find: Future<FindQueryResult?> by lazy {
+        val find: CompletableFuture<FindQueryResult?> by lazy {
             Git.ask(root, FindQueryResult.serializer(), "find", "--json", file.relativeTo(root).path)
         }
     }
@@ -362,9 +364,26 @@ private fun showSelectedFileDetailsWindow() {
                 }
             } ?: ImGui.text("Error reading whereis!")
         }
+        separator()
 
-        ImGui.text(selectedFile!!.find.toString())
-        ImGui.text(selectedFile!!.info.toString())
+        selectedFile!!.find.let {
+            if (!it.isDone) {
+                text("Running find...")
+            } else {
+                ImGui.text(it.get()?.file.toString())
+                ImGui.text(it.get()?.backend.toString())
+                ImGui.text(it.get()?.bytesize.toString())
+            }
+        }
+
+        selectedFile!!.info.let {
+            if (!it.isDone) {
+                text("Running info...")
+            } else {
+                ImGui.text(it.get()?.present.toString())
+                ImGui.text(it.get()?.size.toString())
+            }
+        }
     }
 
     ImGui.end()
