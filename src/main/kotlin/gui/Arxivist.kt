@@ -7,6 +7,7 @@ import gui.AppSettings
 import imgui.*
 import imgui.ImGui.sameLine
 import imgui.classes.Context
+import imgui.demo.DemoWindow
 import imgui.dsl.button
 import imgui.dsl.treeNode
 import imgui.impl.gl.ImplGL3
@@ -88,29 +89,33 @@ sealed interface RepoItem {
     val name: String
 }
 
+enum class GitCommandState {
+    SCHEDULED,
+    RUNNING,
+    FINISHED
+}
+
+data class GitCommandHistory(val cmd: ProcessBuilder, var state: GitCommandState = GitCommandState.SCHEDULED)
+
 object Git {
     private val gitLock = Object()
     private val jsonDecoder = Json { ignoreUnknownKeys = true }
 
-    private val pastCommands = mutableListOf<ProcessBuilder>()
-    private var currentCommand: ProcessBuilder? = null
-    private val futureCommands = mutableListOf<ProcessBuilder>()
+    val commands = mutableListOf<GitCommandHistory>()
 
     private fun runGitProcess(workdir: File, vararg args: String): CompletableFuture<Process> {
         val processBuilder = ProcessBuilder("git", *args)
             .directory(workdir)
-        futureCommands.add(processBuilder)
+        commands.add(GitCommandHistory(processBuilder))
         val result = CompletableFuture<Process>()
         Thread {
             synchronized(gitLock) {
-                futureCommands.remove(processBuilder)
-                currentCommand = processBuilder
+                commands.filter { it.cmd == processBuilder }.forEach { it.state = GitCommandState.RUNNING }
 
                 val process = processBuilder.start()
                 process.waitFor()
 
-                currentCommand = null
-                pastCommands.add(processBuilder)
+                commands.filter { it.cmd == processBuilder }.forEach { it.state = GitCommandState.FINISHED }
                 result.complete(process)
             }
         }.start()
@@ -266,6 +271,8 @@ fun main() {
 
             showSelectedFileDetailsWindow()
 
+            showGitStateWindow()
+
             /*ImGui.begin("Hello, world!")                          // Create a window called "Hello, world!" and append into it.
 
             ImGui.text("This is some useful text.")                // Display some text (you can use a format strings too)
@@ -325,35 +332,43 @@ fun main() {
     glfw.terminate()
 }
 
-private fun showSelectedFileDetailsWindow() {
-    ImGui.begin("File details")
-    if (selectedRepo == null) {
-        ImGui.text("Select repo!")
-    } else {
-        ImGui.text("Listing ${selectedRepo}:")
-
-        selectedRepo!!.let { it.show(it.RepoDir(it.root)) }
-        if (selectedFile != null) {
-            ImGui.text(selectedFile!!.name)
-            ImGui.separator()
-            if (!selectedFile!!.whereis.isDone) {
-                ImGui.text("Running whereis...")
-            } else {
-                selectedFile!!.whereis.resultNow()?.let { that ->
-                    ImGui.text("Found ${that.whereis.size} locations.")
-                    that.whereis.forEach {
-                        ImGui.text(it.uuid); sameLine()
-                        ImGui.text(it.description); sameLine()
-                        ImGui.text("#URLs ${it.urls.size}")
-                    }
-                } ?: ImGui.text("Error reading whereis!")
-            }
-
-            ImGui.text(selectedFile!!.find.toString())
-            ImGui.text(selectedFile!!.info.toString())
+fun showGitStateWindow() {
+    ImGui.begin("git-annex state")
+    Git.commands.reversed().forEach {
+        val icon = when (it.state) {
+            GitCommandState.SCHEDULED -> "S"
+            GitCommandState.RUNNING -> "R"
+            GitCommandState.FINISHED -> "D"
         }
+        ImGui.text("$icon ${it.cmd.command()}")
     }
     ImGui.end()
+}
+
+private fun showSelectedFileDetailsWindow() {
+    ImGui.begin("File details")
+    if (selectedFile != null) {
+        ImGui.text(selectedFile!!.name)
+        ImGui.separator()
+        if (!selectedFile!!.whereis.isDone) {
+            ImGui.text("Running whereis...")
+        } else {
+            selectedFile!!.whereis.resultNow()?.let { that ->
+                ImGui.text("Found ${that.whereis.size} locations.")
+                that.whereis.forEach {
+                    ImGui.text(it.uuid); sameLine()
+                    ImGui.text(it.description); sameLine()
+                    ImGui.text("#URLs ${it.urls.size}")
+                }
+            } ?: ImGui.text("Error reading whereis!")
+        }
+
+        ImGui.text(selectedFile!!.find.toString())
+        ImGui.text(selectedFile!!.info.toString())
+    }
+
+    ImGui.end()
+
 }
 
 fun Repo.show(item: RepoItem) {
@@ -378,6 +393,12 @@ fun Repo.show(item: RepoItem) {
 fun showSelectedRepoContentsWindow() {
     ImGui.begin("Repo contents")
 
+    if (selectedRepo == null) {
+        ImGui.text("Select repo!")
+    } else {
+        ImGui.text("Listing ${selectedRepo}:")
+        selectedRepo!!.let { it.show(it.RepoDir(it.root)) }
+    }
     ImGui.end()
 }
 
