@@ -112,7 +112,7 @@ object Git {
     private fun readProcessOutput(process: Process): String =
         BufferedReader(InputStreamReader(process.inputStream)).readText()
 
-    fun <T> ask(root: File, strategy: DeserializationStrategy<T>, vararg args: String): CompletableFuture<T?> {
+    fun <T> executeOnAnnex(root: File, strategy: DeserializationStrategy<T>, vararg args: String): CompletableFuture<T?> {
         return runGitProcess(root, "annex", *args).thenApply { process ->
             if (process.exitValue() != 0) {
                 println(BufferedReader(InputStreamReader(process.errorStream)).readText())

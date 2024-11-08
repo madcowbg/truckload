@@ -13,15 +13,15 @@ class Repo(val root: File) {
             get() = file.name
 
         val whereis: CompletableFuture<WhereisQueryResult?> by lazy {
-            Git.ask(root, WhereisQueryResult.serializer(), "whereis", "--json", file.relativeTo(root).path)
+            Git.executeOnAnnex(root, WhereisQueryResult.serializer(), "whereis", "--json", file.relativeTo(root).path)
         }
 
         val info: CompletableFuture<FileInfoQueryResult?> by lazy {
-            Git.ask(root, FileInfoQueryResult.serializer(), "info", "--json", file.relativeTo(root).path)
+            Git.executeOnAnnex(root, FileInfoQueryResult.serializer(), "info", "--json", file.relativeTo(root).path)
         }
 
         val find: CompletableFuture<FindQueryResult?> by lazy {
-            Git.ask(root, FindQueryResult.serializer(), "find", "--json", file.relativeTo(root).path)
+            Git.executeOnAnnex(root, FindQueryResult.serializer(), "find", "--json", file.relativeTo(root).path)
         }
     }
 

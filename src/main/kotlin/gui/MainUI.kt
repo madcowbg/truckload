@@ -1,13 +1,17 @@
 package gui
 
+import glm_.vec4.Vec4
 import gui.UISelection.selectedFile
 import gui.UISelection.selectedRepo
 import imgui.ImGui
 import imgui.ImGui.sameLine
 import imgui.ImGui.separator
 import imgui.ImGui.text
+import imgui.ImGui.textColored
 import imgui.dsl
+import java.awt.Color
 import java.io.File
+import java.util.concurrent.CompletableFuture
 
 fun runMainUILoop() {
     showSettingsWindow()
@@ -16,16 +20,55 @@ fun runMainUILoop() {
 
     showSelectedFileDetailsWindow()
 
-    showGitStateWindow()
+    showGitExecutionStateWindow()
+
+    showRepoInformationWindow()
+}
+
+val RED = Vec4(1f, .2f, .2f, 1f)
+val GREEN = Vec4(.2f, 1f, .2f, 1f)
+val GRAY = Vec4(.7f, .7f, .7f, 1f)
+
+fun showRepoInformationWindow() {
+    ImGui.begin("Repo information")
+    ImGui.text("Repo: ${selectedRepo?.repo?.root}")
+    selectedRepo?.info?.takeIf { it.isDone }?.get()?.let {
+        if (!it.success) {
+            textColored(RED, "Error reading repo!")
+        } else {
+            separator()
+            it.`trusted repositories`.forEach { repo ->
+                val color = if(repo.here) GREEN else GRAY
+                textColored(color, repo.description); sameLine(); text(repo.uuid)
+            }
+            separator()
+            it.`semitrusted repositories`.forEach { repo ->
+                val color = if(repo.here) GREEN else GRAY
+                textColored(color, repo.description); sameLine(); text(repo.uuid)
+            }
+            separator()
+            it.`untrusted repositories`.forEach { repo ->
+                val color = if(repo.here) GREEN else GRAY
+                textColored(color, repo.description); sameLine(); text(repo.uuid)
+            }
+        }
+    }
+    ImGui.end()
+}
+
+class RepoUI(val repo: Repo) {
+    val info: CompletableFuture<RepositoriesInfoQueryResult?> by lazy {
+        Git.executeOnAnnex(repo.root, RepositoriesInfoQueryResult.serializer(), "info", "--fast", "--json")
+    }
 }
 
 object UISelection {
-    var selectedRepo: Repo? = Repo(File(AppSettings.repos.firstOrNull()))
+    var selectedRepo: RepoUI? = RepoUI(Repo(File(AppSettings.repos.firstOrNull())))
     var selectedFile: Repo.RepoFile? = null
 }
 
-fun showGitStateWindow() {
-    ImGui.begin("git-annex state")
+fun showGitExecutionStateWindow() {
+    ImGui.begin("git-annex execution state")
     Git.commands.reversed().forEach {
         val icon = when (it.state) {
             GitCommandState.SCHEDULED -> "S"
@@ -107,7 +150,7 @@ fun showSelectedRepoContentsWindow() {
         ImGui.text("Select repo!")
     } else {
         ImGui.text("Listing $selectedRepo:")
-        selectedRepo!!.let { it.show(it.RepoDir(it.root)) }
+        selectedRepo!!.repo.let { it.show(it.RepoDir(it.root)) }
     }
     ImGui.end()
 }
@@ -117,7 +160,7 @@ fun showSettingsWindow() {
     ImGui.text("Repos:")
     AppSettings.repos.forEach {
         if (ImGui.button(it)) {
-            selectedRepo = Repo(File(it))
+            selectedRepo = RepoUI(Repo(File(it)))
             selectedFile = null
         }
     }
