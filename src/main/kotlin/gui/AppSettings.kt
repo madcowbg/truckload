@@ -3,10 +3,9 @@ package gui
 import java.nio.charset.Charset
 
 object AppSettings {
-    var repoFolderSetting: StringBuilder = StringBuilder()
-    init {
-        repoFolderSetting.append("N:\\Videos")
-    }
-    val repoFolder
-        get() = repoFolderSetting.toString()
+    var repos = listOf(
+        "C:\\Users\\Bono\\annex\\Videos",
+        "C:\\Users\\Bono\\annex\\Insta360",
+        "C:\\Users\\Bono\\annex\\GoPro",
+    )
 }

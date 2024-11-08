@@ -6,7 +6,6 @@ import gln.glViewport
 import gui.AppSettings
 import imgui.*
 import imgui.ImGui.sameLine
-import imgui.api.slider
 import imgui.classes.Context
 import imgui.dsl.button
 import imgui.dsl.treeNode
@@ -25,6 +24,8 @@ import uno.glfw.glfw
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Future
 
 // Data
 lateinit var gAppWindow: GlWindow
@@ -46,7 +47,8 @@ var counter = 0
 //    "input":["Movies\\The Hobbit - The Cardinal Cut (Full).mp4"],
 //    "key":"SHA256E-s6324584102--5197b1b31acb47b93f6f7160a998cf969dbf174bc3685cf00cdf5c3a83de3112.mp4",
 //    "note":"2 copies\n\t18d7bf7b-70f0-4b14-86a7-c53d334bd581 -- Backups Vol.02/Videos [here]\n\t3dad22f3-41f0-48cb-ac9b-1b2b7affee54 -- bono.nonchev@4fb7a0458d7a:/git-annex-repos/Videos [origin]\n",
-//    "success":true, "untrusted":[],
+//    "success":true, 
+//    "untrusted":[],
 //    "whereis":[
 //        { "description":"Backups Vol.02/Videos", "here":true, "urls":[], "uuid":"18d7bf7b-70f0-4b14-86a7-c53d334bd581" },
 //        { "description":"bono.nonchev@4fb7a0458d7a:/git-annex-repos/Videos [origin]", "here":false, "urls":[], "uuid":"3dad22f3-41f0-48cb-ac9b-1b2b7affee54" }
@@ -59,32 +61,93 @@ data class WhereisLocation(val description: String, val here: Boolean, val urls:
 @Serializable
 data class WhereisQueryResult(val whereis: List<WhereisLocation>)
 
+//{"command":"info [TorrentCounter.me].Thor.Ragnarok.2017.1080p.BluRay.x264.ESubs.mkv","error-messages":[],
+//  "file":"[TorrentCounter.me].Thor.Ragnarok.2017.1080p.BluRay.x264.ESubs.mkv",
+//  "input":["[TorrentCounter.me].Thor.Ragnarok.2017.1080p.BluRay.x264.ESubs.mkv"],
+//  "key":"SHA256E-s2151158324--1831c346f658fd08f943b5098793892b4b9ed0b83c7dd3b50104a0a13d3a7de3.mkv",
+//  "present":true,"size":"2.15 gigabytes",
+//  "success":true}
+@Serializable
+data class InfoQueryResult(val file: String, val present: Boolean, val size: String)
+
+//{"backend":"SHA256E",
+// "bytesize":"2151158324",
+// "error-messages":[],
+// "file":"[TorrentCounter.me].Thor.Ragnarok.2017.1080p.BluRay.x264.ESubs.mkv",
+// "hashdirlower":"5ba\\979\\",
+// "hashdirmixed":"5V\\PM\\",
+// "humansize":"2.15 GB",
+// "key":"SHA256E-s2151158324--1831c346f658fd08f943b5098793892b4b9ed0b83c7dd3b50104a0a13d3a7de3.mkv",
+// "keyname":"1831c346f658fd08f943b5098793892b4b9ed0b83c7dd3b50104a0a13d3a7de3.mkv",
+// "mtime":"unknown"}
+@Serializable
+data class FindQueryResult(val file: String, val bytesize: Long, val backend: String)
+
 
 sealed interface RepoItem {
     val name: String
 }
 
-private val jsonDecoder = Json { ignoreUnknownKeys = true }
+object Git {
+    private val gitLock = Object()
+    private val jsonDecoder = Json { ignoreUnknownKeys = true }
 
-class Repo(private val root: File) {
-    inner class RepoFile(private var file: File) : RepoItem {
-        override val name: String
-            get() = file.name
+    private val pastCommands = mutableListOf<ProcessBuilder>()
+    private var currentCommand: ProcessBuilder? = null
+    private val futureCommands = mutableListOf<ProcessBuilder>()
 
-        val whereis: WhereisQueryResult? by lazy {
-            val process = ProcessBuilder("git", "annex", "whereis", "--json", file.relativeTo(root).path)
-                .directory(root)
-                .apply { print(this.command()) }
-                .start()
-            process.waitFor()
+    private fun runGitProcess(workdir: File, vararg args: String): CompletableFuture<Process> {
+        val processBuilder = ProcessBuilder("git", *args)
+            .directory(workdir)
+        futureCommands.add(processBuilder)
+        val result = CompletableFuture<Process>()
+        Thread {
+            synchronized(gitLock) {
+                futureCommands.remove(processBuilder)
+                currentCommand = processBuilder
 
+                val process = processBuilder.start()
+                process.waitFor()
+
+                currentCommand = null
+                pastCommands.add(processBuilder)
+                result.complete(process)
+            }
+        }.start()
+        return result
+    }
+
+    private fun readProcessOutput(process: Process): String =
+        BufferedReader(InputStreamReader(process.inputStream)).readText()
+
+    fun <T> ask(root: File, strategy: DeserializationStrategy<T>, vararg args: String): CompletableFuture<T?> {
+        return runGitProcess(root, "annex", *args).thenApply { process ->
             if (process.exitValue() != 0) {
                 println(BufferedReader(InputStreamReader(process.errorStream)).readText())
                 null
             } else {
-                val result = BufferedReader(InputStreamReader(process.inputStream)).readText()
-                jsonDecoder.decodeFromString(WhereisQueryResult.serializer(), result)
+                val result = readProcessOutput(process)
+                jsonDecoder.decodeFromString(strategy, result)
             }
+        }
+    }
+}
+
+class Repo(val root: File) {
+    inner class RepoFile(private var file: File) : RepoItem {
+        override val name: String
+            get() = file.name
+
+        val whereis: Future<WhereisQueryResult?> by lazy {
+            Git.ask(root, WhereisQueryResult.serializer(), "whereis", "--json", file.relativeTo(root).path)
+        }
+
+        val info: Future<InfoQueryResult?> by lazy {
+            Git.ask(root, InfoQueryResult.serializer(), "info", "--json", file.relativeTo(root).path)
+        }
+
+        val find: Future<FindQueryResult?> by lazy {
+            Git.ask(root, FindQueryResult.serializer(), "find", "--json", file.relativeTo(root).path)
         }
     }
 
@@ -100,8 +163,10 @@ class Repo(private val root: File) {
         override val name: String
             get() = dir.name
     }
-
 }
+
+var selectedRepo: Repo? = Repo(File(AppSettings.repos.firstOrNull()))
+var selectedFile: Repo.RepoFile? = null
 
 // Main code
 fun main() {
@@ -178,7 +243,6 @@ fun main() {
     // - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
     // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
 
-    var selectedFile: Repo.RepoFile? = null
     // Main loop
     // [JVM] This automatically also polls events, swaps buffers and gives a MemoryStack instance for the i-th frame
     gAppWindow.loop {
@@ -196,53 +260,13 @@ fun main() {
 
         // 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
         run {
-            ImGui.begin("Settings")
-            ImGui.inputText("Root Folder", AppSettings.repoFolderSetting)
-            ImGui.end()
+            showSettingsWindow()
 
-            ImGui.begin("Repo contents")
-            ImGui.text("Listing ${AppSettings.repoFolder} ...")
-            fun Repo.show(item: RepoItem) {
-                when (item) {
-                    is Repo.RepoDir -> {
-                        treeNode(item.name) {
-                            item.subdirectories.forEach { show(it) }
-                            item.files.forEach { show(it) }
-                        }
-                    }
+            showSelectedRepoContentsWindow()
 
-                    is Repo.RepoFile -> {
-                        if (ImGui.button(item.name)) {
-                            selectedFile = item
-                        }
-                    }
-                }
-            }
+            showSelectedFileDetailsWindow()
 
-            val rootFolder = File(AppSettings.repoFolder)
-            Repo(rootFolder).let { it.show(it.RepoDir(rootFolder)) }
-            ImGui.end()
-
-            ImGui.begin("File details")
-            if (selectedFile != null) {
-                ImGui.text(selectedFile!!.name)
-                ImGui.separator()
-                selectedFile!!.whereis?.let{ that ->
-                    ImGui.text("Found ${that.whereis.size} locations.")
-                    that.whereis.forEach {
-                        ImGui.text(it.uuid); sameLine()
-                        ImGui.text(it.description); sameLine()
-                        ImGui.text("#URLs ${it.urls.size}")
-                    }
-                } ?: ImGui.text("Error reading whereis!")
-//                ImGui.inputTextMultiline("whereis", selectedFile!!.whereis.toString())
-            }
-            ImGui.end()
-
-            ImGui.begin("Hello, world!")                          // Create a window called "Hello, world!" and append into it.
-
-//                if(comboFilter("my combofilter", buf, hints, s) )
-//                    println("picking occured")
+            /*ImGui.begin("Hello, world!")                          // Create a window called "Hello, world!" and append into it.
 
             ImGui.text("This is some useful text.")                // Display some text (you can use a format strings too)
             ImGui.checkbox(
@@ -261,7 +285,7 @@ fun main() {
 
             ImGui.text("Application average %.3f ms/frame (%.1f FPS)", 1_000f / ImGui.io.framerate, ImGui.io.framerate)
 
-            ImGui.end()
+            ImGui.end()*/
 
             // 3. Show another simple window.
             if (showAnotherWindow) {
@@ -299,4 +323,77 @@ fun main() {
     GL.destroy() // TODO -> uno
     gAppWindow.destroy()
     glfw.terminate()
+}
+
+private fun showSelectedFileDetailsWindow() {
+    ImGui.begin("File details")
+    if (selectedRepo == null) {
+        ImGui.text("Select repo!")
+    } else {
+        ImGui.text("Listing ${selectedRepo}:")
+
+        selectedRepo!!.let { it.show(it.RepoDir(it.root)) }
+        if (selectedFile != null) {
+            ImGui.text(selectedFile!!.name)
+            ImGui.separator()
+            if (!selectedFile!!.whereis.isDone) {
+                ImGui.text("Running whereis...")
+            } else {
+                selectedFile!!.whereis.resultNow()?.let { that ->
+                    ImGui.text("Found ${that.whereis.size} locations.")
+                    that.whereis.forEach {
+                        ImGui.text(it.uuid); sameLine()
+                        ImGui.text(it.description); sameLine()
+                        ImGui.text("#URLs ${it.urls.size}")
+                    }
+                } ?: ImGui.text("Error reading whereis!")
+            }
+
+            ImGui.text(selectedFile!!.find.toString())
+            ImGui.text(selectedFile!!.info.toString())
+        }
+    }
+    ImGui.end()
+}
+
+fun Repo.show(item: RepoItem) {
+    when (item) {
+        is Repo.RepoDir -> {
+            treeNode(item.name) {
+                item.subdirectories.forEach { show(it) }
+                item.files.forEach { show(it) }
+            }
+        }
+
+        is Repo.RepoFile -> {
+            if (ImGui.button("i##${item.name}")) {
+                selectedFile = item
+            }
+            sameLine()
+            ImGui.text(item.name)
+        }
+    }
+}
+
+fun showSelectedRepoContentsWindow() {
+    ImGui.begin("Repo contents")
+
+    ImGui.end()
+}
+
+private fun showSettingsWindow() {
+    ImGui.begin("Settings")
+    ImGui.text("Repos:")
+    AppSettings.repos.forEach {
+        if (ImGui.button(it)) {
+            selectedRepo = Repo(File(it))
+            selectedFile = null
+        }
+    }
+
+    ImGui.checkbox(
+        "Demo Window",
+        ::showDemoWindow
+    )             // Edit bools storing our window open/close state
+    ImGui.end()
 }
