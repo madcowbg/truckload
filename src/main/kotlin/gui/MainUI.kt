@@ -9,7 +9,6 @@ import imgui.ImGui.separator
 import imgui.ImGui.text
 import imgui.ImGui.textColored
 import imgui.dsl
-import java.awt.Color
 import java.io.File
 import java.util.concurrent.CompletableFuture
 
@@ -31,7 +30,14 @@ val GRAY = Vec4(.7f, .7f, .7f, 1f)
 
 fun showRepoInformationWindow() {
     ImGui.begin("Repo information")
-    ImGui.text("Repo: ${selectedRepo?.repo?.root}")
+    ImGui.text("Repo: ${selectedRepo?.repo?.root}"); sameLine();
+    if (ImGui.button("Refresh")) {
+        selectedRepo?.refresh()
+    }
+
+    if (selectedRepo?.info?.isDone != true) {
+        ImGui.text("Loading...")
+    }
     selectedRepo?.info?.takeIf { it.isDone }?.get()?.let {
         if (!it.success) {
             textColored(RED, "Error reading repo!")
@@ -57,8 +63,20 @@ fun showRepoInformationWindow() {
 }
 
 class RepoUI(val repo: Repo) {
-    val info: CompletableFuture<RepositoriesInfoQueryResult?> by lazy {
-        Git.executeOnAnnex(repo.root, RepositoriesInfoQueryResult.serializer(), "info", "--fast", "--json")
+    private var loadedInfo: CompletableFuture<RepositoriesInfoQueryResult?>? = null
+
+    val info: CompletableFuture<RepositoriesInfoQueryResult?>
+        get() {
+            var info = loadedInfo
+            if (info == null) {
+                info = Git.executeOnAnnex(repo.root, RepositoriesInfoQueryResult.serializer(), "info", "--fast", "--json")
+                loadedInfo = info
+            }
+            return info
+        }
+
+    fun refresh() {
+        loadedInfo = Git.executeOnAnnex(repo.root, RepositoriesInfoQueryResult.serializer(), "info", "--json")
     }
 }
 

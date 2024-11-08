@@ -74,8 +74,6 @@ data class RepositoryDescription(val description: String, val here: Boolean, val
 @Serializable
 data class FindQueryResult(val file: String, val bytesize: Long, val backend: String)
 
-
-
 enum class GitCommandState {
     SCHEDULED,
     RUNNING,
