@@ -4,6 +4,7 @@ import glm_.vec4.Vec4
 import gui.UISelection.selectedFile
 import gui.UISelection.selectedRepo
 import imgui.ImGui
+import imgui.ImGui.button
 import imgui.ImGui.sameLine
 import imgui.ImGui.separator
 import imgui.ImGui.text
@@ -25,7 +26,7 @@ fun runMainUILoop() {
 
     showRepoInformationWindow()
 
-    if(UISelection.showBackupperWindow) {
+    if (UISelection.showBackupperWindow) {
         showBackupperWindow()
     }
 }
@@ -35,17 +36,24 @@ val GREEN = Vec4(.2f, 1f, .2f, 1f)
 val GRAY = Vec4(.7f, .7f, .7f, 1f)
 val YELLOW = Vec4(.6f, .6f, .2f, 1f)
 
-class BackupperUI(val repoRoot: File, val backupRepoUUIDs: List<String>) : Closeable {
-    var repositoriesInfo: CompletableFuture<CopyOpRepositoriesInfo>? = null // = loadRepositoriesInfo(repoRoot, backupRepoUUIDs)
-    var filesInfo: CompletableFuture<CopyOpFilesInRepositoryInfo>? = null // = loadFilesInRepositoryInfo(repositoriesInfo, repoRoot)
+class BackupperUI(val repoRoot: File, backupRepoUUIDs: List<String>) : Closeable {
+    val backupRepoUUIDs: List<String> = ArrayList(backupRepoUUIDs)
+    var repositoriesInfo: CompletableFuture<CopyOpRepositoriesInfo>? = null
+    var filesInfo: CompletableFuture<CopyOpFilesInRepositoryInfo>? =
+        null // = loadFilesInRepositoryInfo(repositoriesInfo, repoRoot)
     var inAnyBackup: CompletableFuture<CopyOnBackupState>? = null // = analyzeBackupState(backupRepoUUIDs, filesInfo)
-    var copyingOperation: CompletableFuture<Unit>? = null // = copyFilesRequiringBackup(repoRoot, backupRepoUUIDs, filesInfo, repositoriesInfo, inAnyBackup)
+    var copyingOperation: CompletableFuture<Unit>? =
+        null // = copyFilesRequiringBackup(repoRoot, backupRepoUUIDs, filesInfo, repositoriesInfo, inAnyBackup)
 
     override fun close() {
         repositoriesInfo?.cancel(true)
         filesInfo?.cancel(true)
         inAnyBackup?.cancel(true)
         copyingOperation?.cancel(true)
+    }
+
+    fun triggerLoadRepositoriesInfo() {
+        repositoriesInfo = loadRepositoriesInfo(repoRoot, backupRepoUUIDs)
     }
 }
 
@@ -71,12 +79,21 @@ fun showBackupperWindow() {
         val backupperUI = getBackupper(currentRepo, selectedBackupRepoUUIDs)
         ImGui.text("Repo: ${backupperUI.repoRoot}")
         ImGui.text("Backups:")
-        backupperUI.backupRepoUUIDs.forEach {ImGui.text(it)}
+        backupperUI.backupRepoUUIDs.forEach { ImGui.text(it) }
         separator()
 
-        if (backupperUI.filesInfo == null){
-            ImGui.text("TODO START!")
+        val repositoriesInfo = backupperUI.repositoriesInfo
+        if (repositoriesInfo == null) {
+            if (ImGui.button("Read Repositories Info")) {
+                backupperUI.triggerLoadRepositoriesInfo()
+            }
+        } else if (!repositoriesInfo.isDone) {
+            ImGui.textColored(YELLOW, "Loading Repositories Info...")
+        } else {
+            val ri = repositoriesInfo.get()
+            ImGui.text("Found ${ri.remotesInfo.size} repositories!") // TODO more info
         }
+
     }
     ImGui.end()
 }
@@ -139,7 +156,7 @@ private fun RepoUI.showRepoDescriptorLine(it: RepositoriesInfoQueryResult, repo:
         }
     }
     sameLine()
-    ImGui.checkbox("Is Backup##${repo.uuid}", object: MutableProperty<Boolean>() {
+    ImGui.checkbox("Is Backup##${repo.uuid}", object : MutableProperty<Boolean>() {
         override fun set(value: Boolean) {
             if (value) {
                 if (!selectedBackupRepoUUIDs.contains(repo.uuid)) {
