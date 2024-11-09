@@ -152,9 +152,9 @@ fun showSelectedFileDetailsWindow() {
             if (!it.isDone) {
                 text("Running find...")
             } else {
-                ImGui.text(it.get()?.file.toString())
-                ImGui.text(it.get()?.backend.toString())
-                ImGui.text(it.get()?.bytesize.toString())
+                ImGui.text("File: ${it.get()?.file.toString()}")
+                ImGui.text("Backend: ${it.get()?.backend.toString()}")
+                ImGui.text("Bytesize: ${it.get()?.bytesize.toString()}")
             }
         }
 
@@ -162,8 +162,8 @@ fun showSelectedFileDetailsWindow() {
             if (!it.isDone) {
                 text("Running info...")
             } else {
-                ImGui.text(it.get()?.present.toString())
-                ImGui.text(it.get()?.size.toString())
+                ImGui.text("Is Present: ${it.get()?.present.toString()}")
+                ImGui.text("size: ${it.get()?.size.toString()}")
             }
         }
     }

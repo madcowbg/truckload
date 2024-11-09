@@ -200,7 +200,12 @@ object Git {
                 null
             } else {
                 val result = readProcessOutput(process)
-                jsonDecoder.decodeFromString(strategy, result)
+                if (result.isEmpty()) {
+                    println("Process returned no result")
+                    null
+                } else {
+                    jsonDecoder.decodeFromString(strategy, result)
+                }
             }
         }
     }
