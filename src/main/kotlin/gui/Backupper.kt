@@ -1,7 +1,6 @@
 package gui
 
 import com.xenomachina.argparser.ArgParser
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import me.tongfei.progressbar.*
 import kotlinx.serialization.json.Json
@@ -38,7 +37,89 @@ fun main(args: Array<String>): Unit = ArgParser(args).parseInto(::BackupperArgs)
         exitProcess(-1)
     }
 
-    verboseOut.println("Loading git-annex info in $repoDir")
+    val repositoriesInfo = loadRepositoriesInfo(repoRoot, backupRepoUUIDs)
+
+    val filesInfo = loadFilesInRepositoryInfo(repositoriesInfo, repoRoot)
+
+    val inAnyBackup: Map<String, Boolean> = analyzeBackupState(backupRepoUUIDs, filesInfo)
+
+    copyFilesRequiringBackup(repoRoot, backupRepoUUIDs, filesInfo, repositoriesInfo, inAnyBackup)
+}
+
+private fun copyFilesRequiringBackup(
+    repoRoot: File,
+    backupRepoUUIDs: List<String>,
+    fileInfos: CopyOpFilesInRepositoryInfo,
+    remotesInfo: CopyOpRepositoriesInfo,
+    inAnyBackup: Map<String, Boolean>
+) {
+    inAnyBackup.filter { !it.value }.entries.sortedBy { it.key }.forEach { (file, _) ->
+        val fileSize = fileInfos.fileInfos[file]?.size?.toLong() ?: 0
+        verboseOut.println("Copying $file of size ${toGB(fileSize)}GB to a backup...")
+        verboseOut.println("Finding where...")
+        val backupUUID = backupRepoUUIDs.find { uuid ->
+            val candidateBackup = remotesInfo.remotesInfo[uuid] ?: return@find false
+            val repoLocation = candidateBackup.`repository location` ?: error("Can't find repo location for $uuid?!")
+            val fileStore = Files.getFileStore(File(repoLocation).toPath())
+
+            return@find fileSize + driveBufferSize < fileStore.usableSpace
+        }
+        if (backupUUID == null) {
+            error("No place to backup $file - all remotes are full!")
+        }
+        verboseOut.println("Determined to store to $backupUUID.")
+
+        verboseOut.println("Copying $file to store")
+        val gitCopyOperator = GitBatchCopy.toUUID(repoRoot, backupUUID)
+            ?: throw IllegalStateException("Can't find operator for $backupUUID")
+        val result = gitCopyOperator.executeCopy(file)
+
+        if (result == null) {
+            System.err.println("Copy process failed for $file, log tail:")
+            gitCopyOperator.tail(3).forEach { System.err.println(it) }
+            error("Copy process failed for $file")
+        }
+    }
+    GitBatchCopy.close() // close if one remains open
+}
+
+private fun analyzeBackupState(
+    backupRepoUUIDs: List<String>,
+    filesInfo: CopyOpFilesInRepositoryInfo
+): Map<String, Boolean> {
+    val storedFilesPerBackupRepo = backupRepoUUIDs
+        .associateWith { backupUuid ->
+            filesInfo.fileWhereis
+                .filterValues { it.whereis.any { loc -> loc.uuid == backupUuid } }
+                .values.toList()
+        }
+    val inAnyBackup: Map<String, Boolean> =
+        filesInfo.fileWhereis.mapValues { (_, info) -> info.whereis.any { loc -> loc.uuid in backupRepoUUIDs } }
+
+    verboseOut.println("Repo contents:")
+    verboseOut.println("total # files: ${filesInfo.fileWhereis.size}")
+    verboseOut.println(
+        "# files in a backup: ${inAnyBackup.count { it.value }}, " +
+                "${toGB(inAnyBackup.filter { it.value }.keys.sumOf { filesInfo.fileInfos[it]?.size?.toLong() ?: 0 })} GB"
+    )
+    verboseOut.println(
+        "# files in no backup: ${inAnyBackup.count { !it.value }}, " +
+                "${toGB(inAnyBackup.filter { !it.value }.keys.sumOf { filesInfo.fileInfos[it]?.size?.toLong() ?: 0 })} GB"
+    )
+
+    storedFilesPerBackupRepo.forEach { (backupRepoUuid, files) ->
+        verboseOut.println("  $backupRepoUuid: ${files.size} files")
+    }
+    return inAnyBackup
+}
+
+data class CopyOpRepositoriesInfo(
+    val loadedRepositoriesInfo: RepositoriesInfoQueryResult,
+    val remotesInfo: Map<String, RemoteInfoQueryResult?>
+)
+
+private fun loadRepositoriesInfo(repoRoot: File, backupRepoUUIDs: List<String>): CopyOpRepositoriesInfo {
+    verboseOut.println("Loading git-annex info in ${repoRoot.path}")
     val loadedRepositoriesInfo =
         Git.executeOnAnnex(repoRoot, RepositoriesInfoQueryResult.serializer(), "info", "--json").get()
     if (loadedRepositoriesInfo == null) {
@@ -66,71 +147,29 @@ fun main(args: Array<String>): Unit = ArgParser(args).parseInto(::BackupperArgs)
         Git.executeOnAnnex(repoRoot, RemoteInfoQueryResult.serializer(), "info", "--json", uuid).get()
     }
 
-    verboseOut.println("Reading `whereis` information for ${loadedRepositoriesInfo.`annexed files in working tree`} files from $repoDir.")
+    return CopyOpRepositoriesInfo(loadedRepositoriesInfo, remotesInfo)
+}
 
-    val fileWhereis = readWhereisInformationForFiles(repoRoot, loadedRepositoriesInfo)
+data class CopyOpFilesInRepositoryInfo(
+    val fileWhereis: Map<String, WhereisQueryResult>,
+    val fileInfos: Map<String, FileInfoQueryResult>
+)
 
-    val fileInfos: Map<String, FileInfoQueryResult> = readFilesInfo(loadedRepositoriesInfo, fileWhereis, repoRoot)
+private fun loadFilesInRepositoryInfo(
+    reposInfo: CopyOpRepositoriesInfo,
+    repoRoot: File
+): CopyOpFilesInRepositoryInfo {
+    verboseOut.println("Reading `whereis` information for ${reposInfo.loadedRepositoriesInfo.`annexed files in working tree`} files from ${repoRoot.path}.")
+
+    val fileWhereis = readWhereisInformationForFiles(repoRoot, reposInfo.loadedRepositoriesInfo)
+
+    val fileInfos: Map<String, FileInfoQueryResult> = readFilesInfo(reposInfo.loadedRepositoriesInfo, fileWhereis, repoRoot)
 
     verboseOut.println("Found ${fileInfos.size} files of which ${fileInfos.values.count { it.size != "?" }} have file size")
     verboseOut.println(
-        "Found ${fileInfos.size} files in $repoDir of total size ${toGB(fileInfos.values.sumOf { it.size.toLong() })}GB"
+        "Found ${fileInfos.size} files in ${repoRoot.path} of total size ${toGB(fileInfos.values.sumOf { it.size.toLong() })}GB"
     )
-
-    val storedFilesPerBackupRepo = backupRepoUUIDs
-        .associateWith { backupUuid ->
-            fileWhereis
-                .filterValues { it.whereis.any { loc -> loc.uuid == backupUuid } }
-                .values.toList()
-        }
-    val inAnyBackup: Map<String, Boolean> =
-        fileWhereis.mapValues { (file, info) -> info.whereis.any { loc -> loc.uuid in backupRepoUUIDs } }
-
-    verboseOut.println("Repo contents:")
-    verboseOut.println("total # files: ${fileWhereis.size}")
-    verboseOut.println(
-        "# files in a backup: ${inAnyBackup.count { it.value }}, " +
-                "${toGB(inAnyBackup.filter { it.value }.keys.sumOf { fileInfos[it]?.size?.toLong() ?: 0 })} GB"
-    )
-    verboseOut.println(
-        "# files in no backup: ${inAnyBackup.count { !it.value }}, " +
-                "${toGB(inAnyBackup.filter { !it.value }.keys.sumOf { fileInfos[it]?.size?.toLong() ?: 0 })} GB"
-    )
-
-    storedFilesPerBackupRepo.forEach { (backupRepoUuid, files) ->
-        verboseOut.println("  $backupRepoUuid: ${files.size} files")
-    }
-
-//    return
-    //val copyOperators = backupRepoUUIDs.associateWith { uuid -> GitBatchCopy(repoRoot, uuid) }
-
-    inAnyBackup.filter { !it.value }.entries.sortedBy { it.key }.forEach { (file, _) ->
-        val fileSize = fileInfos[file]?.size?.toLong() ?: 0
-        verboseOut.println("Copying $file of size ${toGB(fileSize)}GB to a backup...")
-        verboseOut.println("Finding where...")
-        val backupUUID = backupRepoUUIDs.find { uuid ->
-            val candidateBackup = remotesInfo[uuid] ?: return@find false
-            val repoLocation = candidateBackup.`repository location` ?: error("Can't find repo location for $uuid?!")
-            val fileStore = Files.getFileStore(File(repoLocation).toPath())
-
-            return@find fileSize + driveBufferSize < fileStore.usableSpace
-        }
-        if (backupUUID == null) {
-            error("No place to backup $file - all remotes are full!")
-        }
-        verboseOut.println("Determined to store to $backupUUID.")
-
-        verboseOut.println("Copying $file to store")
-        val gitCopyOperator = GitBatchCopy.toUUID(repoRoot, backupUUID) ?: throw IllegalStateException("Can't find operator for $backupUUID")
-        val result = gitCopyOperator.executeCopy(file)
-
-        if (result == null) {
-            System.err.println("Copy process failed for $file, log tail:")
-            gitCopyOperator.tail(3).forEach { System.err.println(it) }
-            error("Copy process failed for $file")
-        }
-    }
-    GitBatchCopy.close() // close if one remains open
+    return CopyOpFilesInRepositoryInfo(fileWhereis, fileInfos)
 }
 
 //{"command":"copy",
