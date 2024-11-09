@@ -10,6 +10,7 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.io.PrintStream
 import java.nio.file.Files
+import java.util.concurrent.CompletableFuture
 import kotlin.system.exitProcess
 
 class BackupperArgs(parser: ArgParser) {
@@ -41,19 +42,25 @@ fun main(args: Array<String>): Unit = ArgParser(args).parseInto(::BackupperArgs)
 
     val filesInfo = loadFilesInRepositoryInfo(repositoriesInfo, repoRoot)
 
-    val inAnyBackup: Map<String, Boolean> = analyzeBackupState(backupRepoUUIDs, filesInfo)
+    val inAnyBackup = analyzeBackupState(backupRepoUUIDs, filesInfo)
 
-    copyFilesRequiringBackup(repoRoot, backupRepoUUIDs, filesInfo, repositoriesInfo, inAnyBackup)
+    val op = copyFilesRequiringBackup(repoRoot, backupRepoUUIDs, filesInfo, repositoriesInfo, inAnyBackup)
+
+    op.get()
 }
 
 private fun copyFilesRequiringBackup(
     repoRoot: File,
     backupRepoUUIDs: List<String>,
-    fileInfos: CopyOpFilesInRepositoryInfo,
-    remotesInfo: CopyOpRepositoriesInfo,
-    inAnyBackup: Map<String, Boolean>
-) {
-    inAnyBackup.filter { !it.value }.entries.sortedBy { it.key }.forEach { (file, _) ->
+    fileInfosFuture: CompletableFuture<CopyOpFilesInRepositoryInfo>,
+    remotesInfoFuture: CompletableFuture<CopyOpRepositoriesInfo>,
+    inAnyBackupFuture: CompletableFuture<CopyOnBackupState>
+): CompletableFuture<Unit> = CompletableFuture.allOf(fileInfosFuture, remotesInfoFuture, inAnyBackupFuture).thenApply {
+    val fileInfos = fileInfosFuture.join()
+    val remotesInfo = remotesInfoFuture.join()
+    val inAnyBackup = inAnyBackupFuture.join()
+
+    inAnyBackup.inAnyBackup.filter { !it.value }.entries.sortedBy { it.key }.forEach { (file, _) ->
         val fileSize = fileInfos.fileInfos[file]?.size?.toLong() ?: 0
         verboseOut.println("Copying $file of size ${toGB(fileSize)}GB to a backup...")
         verboseOut.println("Finding where...")
@@ -83,10 +90,12 @@ private fun copyFilesRequiringBackup(
     GitBatchCopy.close() // close if one remains open
 }
 
+data class CopyOnBackupState(val inAnyBackup: Map<String, Boolean>)
+
 private fun analyzeBackupState(
     backupRepoUUIDs: List<String>,
-    filesInfo: CopyOpFilesInRepositoryInfo
-): Map<String, Boolean> {
+    filesInfo: CompletableFuture<CopyOpFilesInRepositoryInfo>
+): CompletableFuture<CopyOnBackupState> = filesInfo.thenApplyAsync { filesInfo ->
     val storedFilesPerBackupRepo = backupRepoUUIDs
         .associateWith { backupUuid ->
             filesInfo.fileWhereis
@@ -110,7 +119,7 @@ private fun analyzeBackupState(
     storedFilesPerBackupRepo.forEach { (backupRepoUuid, files) ->
         verboseOut.println("  $backupRepoUuid: ${files.size} files")
     }
-    return inAnyBackup
+    return@thenApplyAsync CopyOnBackupState(inAnyBackup)
 }
 
 data class CopyOpRepositoriesInfo(
@@ -118,13 +127,16 @@ data class CopyOpRepositoriesInfo(
     val remotesInfo: Map<String, RemoteInfoQueryResult?>
 )
 
-private fun loadRepositoriesInfo(repoRoot: File, backupRepoUUIDs: List<String>): CopyOpRepositoriesInfo {
+private fun loadRepositoriesInfo(
+    repoRoot: File,
+    backupRepoUUIDs: List<String>
+): CompletableFuture<CopyOpRepositoriesInfo> = CompletableFuture.supplyAsync {
     verboseOut.println("Loading git-annex info in ${repoRoot.path}")
     val loadedRepositoriesInfo =
         Git.executeOnAnnex(repoRoot, RepositoriesInfoQueryResult.serializer(), "info", "--json").get()
     if (loadedRepositoriesInfo == null) {
         System.err.println("Could not load info!")
-        exitProcess(-1)
+        throw IllegalStateException("Could not load repo info!")
     }
 
     val allRepos: Map<String, RepositoryDescription> =
@@ -138,7 +150,7 @@ private fun loadRepositoriesInfo(repoRoot: File, backupRepoUUIDs: List<String>):
     backupRepoUUIDs.forEach { uuid ->
         if (uuid !in allRepos) {
             verboseOut.println("$uuid not found in list of existing repos!")
-            exitProcess(-1)
+            throw IllegalStateException("$uuid not found in list of existing repos!")
         }
     }
 
@@ -147,7 +159,7 @@ private fun loadRepositoriesInfo(repoRoot: File, backupRepoUUIDs: List<String>):
         Git.executeOnAnnex(repoRoot, RemoteInfoQueryResult.serializer(), "info", "--json", uuid).get()
     }
 
-    return CopyOpRepositoriesInfo(loadedRepositoriesInfo, remotesInfo)
+    return@supplyAsync CopyOpRepositoriesInfo(loadedRepositoriesInfo, remotesInfo)
 }
 
 data class CopyOpFilesInRepositoryInfo(
@@ -156,20 +168,21 @@ data class CopyOpFilesInRepositoryInfo(
 )
 
 private fun loadFilesInRepositoryInfo(
-    reposInfo: CopyOpRepositoriesInfo,
+    reposInfoFuture: CompletableFuture<CopyOpRepositoriesInfo>,
     repoRoot: File
-): CopyOpFilesInRepositoryInfo {
+): CompletableFuture<CopyOpFilesInRepositoryInfo> = reposInfoFuture.thenApplyAsync { reposInfo ->
     verboseOut.println("Reading `whereis` information for ${reposInfo.loadedRepositoriesInfo.`annexed files in working tree`} files from ${repoRoot.path}.")
 
     val fileWhereis = readWhereisInformationForFiles(repoRoot, reposInfo.loadedRepositoriesInfo)
 
-    val fileInfos: Map<String, FileInfoQueryResult> = readFilesInfo(reposInfo.loadedRepositoriesInfo, fileWhereis, repoRoot)
+    val fileInfos: Map<String, FileInfoQueryResult> =
+        readFilesInfo(reposInfo.loadedRepositoriesInfo, fileWhereis, repoRoot)
 
     verboseOut.println("Found ${fileInfos.size} files of which ${fileInfos.values.count { it.size != "?" }} have file size")
     verboseOut.println(
         "Found ${fileInfos.size} files in ${repoRoot.path} of total size ${toGB(fileInfos.values.sumOf { it.size.toLong() })}GB"
     )
-    return CopyOpFilesInRepositoryInfo(fileWhereis, fileInfos)
+    return@thenApplyAsync CopyOpFilesInRepositoryInfo(fileWhereis, fileInfos)
 }
 
 //{"command":"copy",
