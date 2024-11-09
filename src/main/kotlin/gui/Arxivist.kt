@@ -27,7 +27,7 @@ lateinit var implGl3: ImplGL3
 
 // Our state
 // (we use static, which essentially makes the variable globals, as a convenience to keep the example code easy to follow)
-var showDemoWindow = true
+var showDemoWindow = false
 var showAnotherWindow = false
 var clearColor = Vec4(0.45f, 0.55f, 0.6f, 1f)
 

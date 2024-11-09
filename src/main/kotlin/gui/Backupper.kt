@@ -60,66 +60,46 @@ fun copyFilesRequiringBackup(
     val remotesInfo = remotesInfoFuture.join()
     val inAnyBackup = inAnyBackupFuture.join()
 
-    inAnyBackup.inAnyBackup.filter { !it.value }.entries.sortedBy { it.key }.forEach { (file, _) ->
-        val fileSize = fileInfos.fileInfos[file]?.size?.toLong() ?: 0
-        verboseOut.println("Copying $file of size ${toGB(fileSize)}GB to a backup...")
-        verboseOut.println("Finding where...")
-        val backupUUID = backupRepoUUIDs.find { uuid ->
-            val candidateBackup = remotesInfo.remotesInfo[uuid] ?: return@find false
-            val repoLocation = candidateBackup.`repository location` ?: error("Can't find repo location for $uuid?!")
-            val fileStore = Files.getFileStore(File(repoLocation).toPath())
+    inAnyBackup.sortedFiles.forEach { (file, _) ->
+        val backupUUID = chooseBackupDestination(remotesInfo, fileInfos, backupRepoUUIDs, file)
+            ?: error("No place to backup $file - all remotes are full!")
 
-            return@find fileSize + driveBufferSize < fileStore.usableSpace
-        }
-        if (backupUUID == null) {
-            error("No place to backup $file - all remotes are full!")
-        }
-        verboseOut.println("Determined to store to $backupUUID.")
-
-        verboseOut.println("Copying $file to store")
-        val gitCopyOperator = GitBatchCopy.toUUID(repoRoot, backupUUID)
-            ?: throw IllegalStateException("Can't find operator for $backupUUID")
-        val result = gitCopyOperator.executeCopy(file)
-
-        if (result == null) {
-            System.err.println("Copy process failed for $file, log tail:")
-            gitCopyOperator.tail(3).forEach { System.err.println(it) }
-            error("Copy process failed for $file")
-        }
+        backupFileToRemote(repoRoot, backupUUID = backupUUID, file = file).get()
     }
     GitBatchCopy.close() // close if one remains open
 }
 
-data class CopyOnBackupState(val inAnyBackup: Map<String, Boolean>)
+private fun backupFileToRemote(repoRoot: File, backupUUID: String, file: String): CompletableFuture<Unit> = CompletableFuture.supplyAsync {
+    verboseOut.println("Determined to store to $backupUUID.")
+    verboseOut.println("Copying $file to store")
+    val gitCopyOperator = GitBatchCopy.toUUID(repoRoot, backupUUID)
+        ?: throw IllegalStateException("Can't find operator for $backupUUID")
+    val result = gitCopyOperator.executeCopy(file)
 
-fun analyzeBackupState(
-    backupRepoUUIDs: List<String>,
-    filesInfo: CompletableFuture<CopyOpFilesInRepositoryInfo>
-): CompletableFuture<CopyOnBackupState> = filesInfo.thenApplyAsync { filesInfo ->
-    val storedFilesPerBackupRepo = backupRepoUUIDs
-        .associateWith { backupUuid ->
-            filesInfo.fileWhereis
-                .filterValues { it.whereis.any { loc -> loc.uuid == backupUuid } }
-                .values.toList()
-        }
-    val inAnyBackup: Map<String, Boolean> =
-        filesInfo.fileWhereis.mapValues { (_, info) -> info.whereis.any { loc -> loc.uuid in backupRepoUUIDs } }
-
-    verboseOut.println("Repo contents:")
-    verboseOut.println("total # files: ${filesInfo.fileWhereis.size}")
-    verboseOut.println(
-        "# files in a backup: ${inAnyBackup.count { it.value }}, " +
-                "${toGB(inAnyBackup.filter { it.value }.keys.sumOf { filesInfo.fileInfos[it]?.size?.toLong() ?: 0 })} GB"
-    )
-    verboseOut.println(
-        "# files in no backup: ${inAnyBackup.count { !it.value }}, " +
-                "${toGB(inAnyBackup.filter { !it.value }.keys.sumOf { filesInfo.fileInfos[it]?.size?.toLong() ?: 0 })} GB"
-    )
-
-    storedFilesPerBackupRepo.forEach { (backupRepoUuid, files) ->
-        verboseOut.println("  $backupRepoUuid: ${files.size} files")
+    if (result == null) {
+        System.err.println("Copy process failed for $file, log tail:")
+        gitCopyOperator.tail(3).forEach { System.err.println(it) }
+        throw IllegalStateException("Copy process failed for $file")
     }
-    return@thenApplyAsync CopyOnBackupState(inAnyBackup)
+}
+
+private fun chooseBackupDestination(
+    remotesInfo: CopyOpRepositoriesInfo,
+    fileInfos: CopyOpFilesInRepositoryInfo,
+    backupRepoUUIDs: List<String>,
+    file: String
+): String? {
+    val fileSize = fileInfos.fileInfos[file]?.size?.toLong() ?: 0
+    verboseOut.println("Copying $file of size ${toGB(fileSize)}GB to a backup...")
+    verboseOut.println("Finding where...")
+    val backupUUID = backupRepoUUIDs.find { uuid ->
+        val candidateBackup = remotesInfo.remotesInfo[uuid] ?: return@find false
+        val repoLocation = candidateBackup.`repository location` ?: error("Can't find repo location for $uuid?!")
+        val fileStore = Files.getFileStore(File(repoLocation).toPath())
+
+        return@find fileSize + driveBufferSize < fileStore.usableSpace
+    }
+    return backupUUID
 }
 
 data class CopyOpRepositoriesInfo(
@@ -183,6 +163,45 @@ fun loadFilesInRepositoryInfo(
         "Found ${fileInfos.size} files in ${repoRoot.path} of total size ${toGB(fileInfos.values.sumOf { it.size.toLong() })}GB"
     )
     return@thenApplyAsync CopyOpFilesInRepositoryInfo(fileWhereis, fileInfos)
+}
+
+data class CopyOnBackupState(
+    val inAnyBackup: Map<String, Boolean>,
+    val storedFilesPerBackupRepo: Map<String, List<WhereisQueryResult>>
+) {
+    val sortedFiles = inAnyBackup
+        .filter { !it.value }
+        .entries.sortedBy { it.key }
+}
+
+fun analyzeBackupState(
+    backupRepoUUIDs: List<String>,
+    filesInfo: CompletableFuture<CopyOpFilesInRepositoryInfo>
+): CompletableFuture<CopyOnBackupState> = filesInfo.thenApplyAsync { filesInfo ->
+    val storedFilesPerBackupRepo = backupRepoUUIDs
+        .associateWith { backupUuid ->
+            filesInfo.fileWhereis
+                .filterValues { it.whereis.any { loc -> loc.uuid == backupUuid } }
+                .values.toList()
+        }
+    val inAnyBackup: Map<String, Boolean> =
+        filesInfo.fileWhereis.mapValues { (_, info) -> info.whereis.any { loc -> loc.uuid in backupRepoUUIDs } }
+
+    verboseOut.println("Repo contents:")
+    verboseOut.println("total # files: ${filesInfo.fileWhereis.size}")
+    verboseOut.println(
+        "# files in a backup: ${inAnyBackup.count { it.value }}, " +
+                "${toGB(inAnyBackup.filter { it.value }.keys.sumOf { filesInfo.fileInfos[it]?.size?.toLong() ?: 0 })} GB"
+    )
+    verboseOut.println(
+        "# files in no backup: ${inAnyBackup.count { !it.value }}, " +
+                "${toGB(inAnyBackup.filter { !it.value }.keys.sumOf { filesInfo.fileInfos[it]?.size?.toLong() ?: 0 })} GB"
+    )
+
+    storedFilesPerBackupRepo.forEach { (backupRepoUuid, files) ->
+        verboseOut.println("  $backupRepoUuid: ${files.size} files")
+    }
+    return@thenApplyAsync CopyOnBackupState(inAnyBackup, storedFilesPerBackupRepo)
 }
 
 //{"command":"copy",
@@ -266,7 +285,7 @@ class GitBatchCopy private constructor(private val repoRoot: File, val toUUID: S
     }
 }
 
-private fun toGB(bytes: Long) =
+fun toGB(bytes: Long) =
     bytes.toFloat() / (1 shl 30)
 
 private fun readFilesInfo(

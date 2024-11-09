@@ -39,9 +39,8 @@ val YELLOW = Vec4(.6f, .6f, .2f, 1f)
 class BackupperUI(val repoRoot: File, backupRepoUUIDs: List<String>) : Closeable {
     val backupRepoUUIDs: List<String> = ArrayList(backupRepoUUIDs)
     var repositoriesInfo: CompletableFuture<CopyOpRepositoriesInfo>? = null
-    var filesInfo: CompletableFuture<CopyOpFilesInRepositoryInfo>? =
-        null // = loadFilesInRepositoryInfo(repositoriesInfo, repoRoot)
-    var inAnyBackup: CompletableFuture<CopyOnBackupState>? = null // = analyzeBackupState(backupRepoUUIDs, filesInfo)
+    var filesInfo: CompletableFuture<CopyOpFilesInRepositoryInfo>? = null
+    var inAnyBackup: CompletableFuture<CopyOnBackupState>? = null
     var copyingOperation: CompletableFuture<Unit>? =
         null // = copyFilesRequiringBackup(repoRoot, backupRepoUUIDs, filesInfo, repositoriesInfo, inAnyBackup)
 
@@ -53,7 +52,16 @@ class BackupperUI(val repoRoot: File, backupRepoUUIDs: List<String>) : Closeable
     }
 
     fun triggerLoadRepositoriesInfo() {
+        repositoriesInfo?.cancel(true)
         repositoriesInfo = loadRepositoriesInfo(repoRoot, backupRepoUUIDs)
+    }
+
+    fun triggerLoadFilesInfo() {
+        filesInfo?.cancel(true)
+        filesInfo = repositoriesInfo?.let { loadFilesInRepositoryInfo(it, repoRoot) }
+
+        inAnyBackup?.cancel(true)
+        inAnyBackup = filesInfo?.let { analyzeBackupState(backupRepoUUIDs, it) }
     }
 }
 
@@ -89,13 +97,55 @@ fun showBackupperWindow() {
             }
         } else if (!repositoriesInfo.isDone) {
             ImGui.textColored(YELLOW, "Loading Repositories Info...")
-        } else {
+        } else { // has repo info
             val ri = repositoriesInfo.get()
             ImGui.text("Found ${ri.remotesInfo.size} repositories!") // TODO more info
+            ImGui.text("Need to read `whereis` information for ${ri.loadedRepositoriesInfo.`annexed files in working tree`} files.")
         }
 
+        val filesInfo = backupperUI.filesInfo
+        if (repositoriesInfo != null) {
+            if (filesInfo == null) {
+                if (ImGui.button("Read Files")) {
+                    backupperUI.triggerLoadFilesInfo()
+                }
+            } else if (!filesInfo.isDone) {
+                ImGui.textColored(YELLOW, "Loading Files Info...")
+            } else { // has files info
+                val fi = filesInfo.get()
+
+                ImGui.text("Found ${fi.fileInfos.size} files of which ${fi.fileInfos.values.count { it.size != "?" }} have file size")
+                ImGui.text(
+                    "Found ${fi.fileInfos.size} files of total size ${toGB(fi.fileInfos.values.sumOf { it.size.toLong() })}GB"
+                )
+            }
+        }
+
+        var inAnyBackup = backupperUI.inAnyBackup
+        if (inAnyBackup == null || filesInfo?.isDone != true) {
+            // show nothing, previous step triggers it
+        } else if (!inAnyBackup.isDone) {
+            ImGui.textColored(YELLOW, "Creating backup strategy...")
+        } else { // has a strategy!
+            val fi = filesInfo.get()
+            val ia = inAnyBackup.get()
+            ImGui.text("Repo contents:")
+            ImGui.text("total # files: ${fi.fileWhereis.size}")
+            ImGui.text(
+                "# files in a backup: ${ia.inAnyBackup.count { it.value }}, " +
+                        "${toGB(ia.inAnyBackup.filter { it.value }.keys.sumOf { fi.fileInfos[it]?.size?.toLong() ?: 0 })} GB"
+            )
+            ImGui.text(
+                "# files in no backup: ${ia.inAnyBackup.count { !it.value }}, " +
+                        "${toGB(ia.inAnyBackup.filter { !it.value }.keys.sumOf { fi.fileInfos[it]?.size?.toLong() ?: 0 })} GB"
+            )
+
+            ia.storedFilesPerBackupRepo.forEach { (backupRepoUuid, files) ->
+                ImGui.text("  $backupRepoUuid: ${files.size} files")
+            }
+        }
+        ImGui.end()
     }
-    ImGui.end()
 }
 
 
@@ -179,7 +229,13 @@ class RepoUI(val repo: Repo) {
             var info = loadedInfo
             if (info == null) {
                 info =
-                    Git.executeOnAnnex(repo.root, RepositoriesInfoQueryResult.serializer(), "info", "--fast", "--json")
+                    Git.executeOnAnnex(
+                        repo.root,
+                        RepositoriesInfoQueryResult.serializer(),
+                        "info",
+                        "--fast",
+                        "--json"
+                    )
                 loadedInfo = info
             }
             return info
