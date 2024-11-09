@@ -10,6 +10,7 @@ import imgui.ImGui.text
 import imgui.ImGui.textColored
 import imgui.dsl
 import java.io.File
+import java.util.Collections.synchronizedMap
 import java.util.concurrent.CompletableFuture
 
 fun runMainUILoop() {
@@ -27,39 +28,60 @@ fun runMainUILoop() {
 val RED = Vec4(1f, .2f, .2f, 1f)
 val GREEN = Vec4(.2f, 1f, .2f, 1f)
 val GRAY = Vec4(.7f, .7f, .7f, 1f)
+val YELLOW = Vec4(.6f, .6f, .2f, 1f)
 
 fun showRepoInformationWindow() {
     ImGui.begin("Repo information")
-    ImGui.text("Repo: ${selectedRepo?.repo?.root}"); sameLine();
-    if (ImGui.button("Refresh")) {
-        selectedRepo?.refresh()
-    }
+    val shownRepo = selectedRepo
+    if (shownRepo == null) {
+        ImGui.textColored(RED, "Select repo first!")
+    } else {
+        ImGui.text("Repo: ${shownRepo.repo.root}"); sameLine();
+        if (ImGui.button("Refresh")) {
+            shownRepo.refresh()
+        }
 
-    if (selectedRepo?.info?.isDone != true) {
-        ImGui.text("Loading...")
-    }
-    selectedRepo?.info?.takeIf { it.isDone }?.get()?.let {
-        if (!it.success) {
-            textColored(RED, "Error reading repo!")
-        } else {
-            separator()
-            it.`trusted repositories`.forEach { repo ->
-                val color = if(repo.here) GREEN else GRAY
-                textColored(color, repo.description); sameLine(); text(repo.uuid)
-            }
-            separator()
-            it.`semitrusted repositories`.forEach { repo ->
-                val color = if(repo.here) GREEN else GRAY
-                textColored(color, repo.description); sameLine(); text(repo.uuid)
-            }
-            separator()
-            it.`untrusted repositories`.forEach { repo ->
-                val color = if(repo.here) GREEN else GRAY
-                textColored(color, repo.description); sameLine(); text(repo.uuid)
+        if (!shownRepo.info.isDone) {
+            ImGui.textColored(YELLOW, "Loading...")
+        }
+
+        shownRepo.info.takeIf { it.isDone }?.get()?.let {
+            if (!it.success) {
+                textColored(RED, "Error reading repo!")
+            } else {
+                separator()
+                it.`trusted repositories`.forEach { repo -> shownRepo.showRepoDescriptorLine(it, repo) }
+                separator()
+                it.`semitrusted repositories`.forEach { repo -> shownRepo.showRepoDescriptorLine(it, repo) }
+                separator()
+                it.`untrusted repositories`.forEach { repo -> shownRepo.showRepoDescriptorLine(it, repo) }
             }
         }
     }
     ImGui.end()
+}
+
+private fun RepoUI.showRepoDescriptorLine(it: RepositoriesInfoQueryResult, repo: RepositoryDescription) {
+    val size = it.`annex sizes of repositories`.find { size -> size.uuid == repo.uuid }?.size ?: "?"
+    text(size)
+    val color = if (repo.here) GREEN else GRAY
+    sameLine()
+    textColored(color, repo.description)
+    sameLine()
+    if (ImGui.button(repo.uuid)) {
+        val info = this.remoteInfo(repo.uuid).get()
+        if (info != null) {
+            val pathToNavigate = if (repo.here) {
+                this.repo.root.path
+            } else {
+                info.`repository location`
+            }
+            println("Opening explorer to $pathToNavigate...")
+            if (pathToNavigate != null) {
+                ProcessBuilder("explorer.exe", pathToNavigate).start()
+            }
+        }
+    }
 }
 
 class RepoUI(val repo: Repo) {
@@ -69,7 +91,8 @@ class RepoUI(val repo: Repo) {
         get() {
             var info = loadedInfo
             if (info == null) {
-                info = Git.executeOnAnnex(repo.root, RepositoriesInfoQueryResult.serializer(), "info", "--fast", "--json")
+                info =
+                    Git.executeOnAnnex(repo.root, RepositoriesInfoQueryResult.serializer(), "info", "--fast", "--json")
                 loadedInfo = info
             }
             return info
@@ -78,6 +101,13 @@ class RepoUI(val repo: Repo) {
     fun refresh() {
         loadedInfo = Git.executeOnAnnex(repo.root, RepositoriesInfoQueryResult.serializer(), "info", "--json")
     }
+
+    private val remotesInfo: MutableMap<String, CompletableFuture<RemoteInfoQueryResult?>> = mutableMapOf()
+
+    fun remoteInfo(uuid: String): CompletableFuture<RemoteInfoQueryResult?> =
+        remotesInfo.computeIfAbsent(uuid) {
+            Git.executeOnAnnex(repo.root, RemoteInfoQueryResult.serializer(), "info", "--json", "--fast", uuid)
+        }
 }
 
 object UISelection {
