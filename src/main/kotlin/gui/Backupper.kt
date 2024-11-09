@@ -49,7 +49,7 @@ fun main(args: Array<String>): Unit = ArgParser(args).parseInto(::BackupperArgs)
     op.get()
 }
 
-private fun copyFilesRequiringBackup(
+fun copyFilesRequiringBackup(
     repoRoot: File,
     backupRepoUUIDs: List<String>,
     fileInfosFuture: CompletableFuture<CopyOpFilesInRepositoryInfo>,
@@ -92,7 +92,7 @@ private fun copyFilesRequiringBackup(
 
 data class CopyOnBackupState(val inAnyBackup: Map<String, Boolean>)
 
-private fun analyzeBackupState(
+fun analyzeBackupState(
     backupRepoUUIDs: List<String>,
     filesInfo: CompletableFuture<CopyOpFilesInRepositoryInfo>
 ): CompletableFuture<CopyOnBackupState> = filesInfo.thenApplyAsync { filesInfo ->
@@ -127,7 +127,7 @@ data class CopyOpRepositoriesInfo(
     val remotesInfo: Map<String, RemoteInfoQueryResult?>
 )
 
-private fun loadRepositoriesInfo(
+fun loadRepositoriesInfo(
     repoRoot: File,
     backupRepoUUIDs: List<String>
 ): CompletableFuture<CopyOpRepositoriesInfo> = CompletableFuture.supplyAsync {
@@ -167,7 +167,7 @@ data class CopyOpFilesInRepositoryInfo(
     val fileInfos: Map<String, FileInfoQueryResult>
 )
 
-private fun loadFilesInRepositoryInfo(
+fun loadFilesInRepositoryInfo(
     reposInfoFuture: CompletableFuture<CopyOpRepositoriesInfo>,
     repoRoot: File
 ): CompletableFuture<CopyOpFilesInRepositoryInfo> = reposInfoFuture.thenApplyAsync { reposInfo ->
