@@ -1,9 +1,14 @@
 package gui
 
 import com.xenomachina.argparser.ArgParser
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import me.tongfei.progressbar.*
 import kotlinx.serialization.json.Json
+import java.io.Closeable
 import java.io.File
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 import java.io.PrintStream
 import java.nio.file.Files
 import kotlin.system.exitProcess
@@ -20,9 +25,9 @@ class BackupperArgs(parser: ArgParser) {
 private val verboseOut: PrintStream = System.out
 
 private val jsonDecoder = Json { ignoreUnknownKeys = true }
-private const val driveBufferSize = 1 shl 30 // 1GB
+private const val driveBufferSize: Long = 50 * (1L shl 30) // 50GB
 
-fun main(args: Array<String>) = ArgParser(args).parseInto(::BackupperArgs).run {
+fun main(args: Array<String>): Unit = ArgParser(args).parseInto(::BackupperArgs).run {
     val repoRoot = File(repoDir)
     if (!repoRoot.exists()) {
         System.err.println("Repo $repoDir does not exist!")
@@ -97,33 +102,114 @@ fun main(args: Array<String>) = ArgParser(args).parseInto(::BackupperArgs).run {
     }
 
 //    return
+    //val copyOperators = backupRepoUUIDs.associateWith { uuid -> GitBatchCopy(repoRoot, uuid) }
+
     inAnyBackup.filter { !it.value }.entries.sortedBy { it.key }.forEach { (file, _) ->
         val fileSize = fileInfos[file]?.size?.toLong() ?: 0
         verboseOut.println("Copying $file of size ${toGB(fileSize)}GB to a backup...")
         verboseOut.println("Finding where...")
-        val uuid = backupRepoUUIDs.find { uuid ->
+        val backupUUID = backupRepoUUIDs.find { uuid ->
             val candidateBackup = remotesInfo[uuid] ?: return@find false
             val repoLocation = candidateBackup.`repository location` ?: error("Can't find repo location for $uuid?!")
             val fileStore = Files.getFileStore(File(repoLocation).toPath())
 
             return@find fileSize + driveBufferSize < fileStore.usableSpace
         }
-        if (uuid == null) {
+        if (backupUUID == null) {
             error("No place to backup $file - all remotes are full!")
         }
-        verboseOut.println("Determined to store to $uuid.")
+        verboseOut.println("Determined to store to $backupUUID.")
 
         verboseOut.println("Copying $file to store")
-        val builder = ProcessBuilder("git", "annex", "copy", "--json", "--from-anywhere", "--to=$uuid", file)
-            .redirectOutput(ProcessBuilder.Redirect.INHERIT)
-            .directory(repoRoot)
-        verboseOut.println("Cmd: ${builder.command()}")
-        val process = builder.start()
+        val gitCopyOperator = GitBatchCopy.toUUID(repoRoot, backupUUID) ?: throw IllegalStateException("Can't find operator for $backupUUID")
+        val result = gitCopyOperator.executeCopy(file)
 
+        if (result == null) {
+            System.err.println("Copy process failed for $file, log tail:")
+            gitCopyOperator.tail(3).forEach { System.err.println(it) }
+            error("Copy process failed for $file")
+        }
+    }
+    GitBatchCopy.close() // close if one remains open
+}
+
+//{"command":"copy",
+// "error-messages":[],
+// "file":"bulkexport\\VID_20230507_125125_001\\default_preview.mp4",
+// "input":["bulkexport\\VID_20230507_125125_001\\default_preview.mp4"],
+// "key":"SHA256E-s1660709755--d3abb4d455340d73215d1f98b0648c001fcffa96820b8f2f315480d279a8128a.mp4",
+// "note":"from backups-vol-01-Insta360...",
+// "success":true}
+@Serializable
+data class CopyCmdResult(
+    val file: String,
+    //@SerialName("error-messages") val errorMessages: List<Object>,
+    val success: Boolean
+)
+
+class GitBatchCopy private constructor(private val repoRoot: File, val toUUID: String) : Closeable {
+    private val builder = ProcessBuilder("git", "annex", "copy", "--json", "--from-anywhere", "--to=$toUUID", "--batch")
+        .redirectError(ProcessBuilder.Redirect.INHERIT)
+        .directory(repoRoot)
+
+    init {
+        verboseOut.println("Batch copy CMD: ${builder.command()}")
+    }
+
+    private val process = builder.start()
+    private val commandStream = OutputStreamWriter(process.outputStream)
+    private val resultStream = InputStreamReader(process.inputStream).buffered()
+
+    private val log = mutableListOf<String>()
+    fun tail(n: Int = Int.MAX_VALUE) = log.slice((log.size - n).coerceAtLeast(0) until log.size)
+
+    fun executeCopy(file: String): CopyCmdResult? {
+        synchronized(process) {
+            verboseOut.println("Copying $file...")
+
+            log.add("[CMD]$file")
+            commandStream.write(file + "\n")
+            commandStream.flush()
+
+            verboseOut.println("Waiting for results...")
+            val resultStr = resultStream.readLine()
+            log.add("[RES]$resultStr")
+            verboseOut.println("Copying done!")
+            return if (resultStr == "") { // operation did nothing
+                null
+            } else {
+                jsonDecoder.decodeFromString(CopyCmdResult.serializer(), resultStr)
+            }
+        }
+    }
+
+    override fun close() {
+        process.destroy()
         process.waitFor()
-//        println("Process exited: ${process.exitValue()}")
-        if (process.exitValue() != 0)  {
-            error("Copy process failed with error ${process.errorStream.bufferedReader().readText()}")
+    }
+
+    companion object : Closeable {
+        private var copyOperator: GitBatchCopy? = null
+        fun toUUID(repoRoot: File, uuid: String): GitBatchCopy? {
+            synchronized(Companion) {
+                val oldCopyOperator = copyOperator
+                if (oldCopyOperator?.toUUID != uuid || oldCopyOperator.repoRoot != repoRoot) {
+                    if (oldCopyOperator != null) {
+                        synchronized(oldCopyOperator) {
+                            oldCopyOperator.close()
+                        }
+                    }
+                    copyOperator = GitBatchCopy(repoRoot, uuid)
+                }
+                return copyOperator
+            }
+        }
+
+        override fun close() {
+            synchronized(Companion) {
+                copyOperator?.close()
+                copyOperator = null
+            }
         }
     }
 }
