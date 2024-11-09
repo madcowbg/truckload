@@ -25,7 +25,7 @@ import java.util.concurrent.CompletableFuture
 data class WhereisLocation(val description: String, val here: Boolean, val urls: List<String>, val uuid: String)
 
 @Serializable
-data class WhereisQueryResult(val whereis: List<WhereisLocation>)
+data class WhereisQueryResult(val file: String, val whereis: List<WhereisLocation>)
 
 //{"command":"info [TorrentCounter.me].Thor.Ragnarok.2017.1080p.BluRay.x264.ESubs.mkv","error-messages":[],
 //  "file":"[TorrentCounter.me].Thor.Ragnarok.2017.1080p.BluRay.x264.ESubs.mkv",
@@ -34,7 +34,7 @@ data class WhereisQueryResult(val whereis: List<WhereisLocation>)
 //  "present":true,"size":"2.15 gigabytes",
 //  "success":true}
 @Serializable
-data class FileInfoQueryResult(val file: String, val present: Boolean, val size: String)
+data class FileInfoQueryResult(val file: String, val present: Boolean = false, val size: String = "?")
 
 //{
 // "annex sizes of repositories":[
@@ -85,6 +85,7 @@ data class RepositoriesInfoQueryResult(
     val `trusted repositories`: List<RepositoryDescription>, val `untrusted repositories`: List<RepositoryDescription>,
     val `annex sizes of repositories`: List<RepositoryAnnexSize> = emptyList(),
     val `size of annexed files in working tree`: String = "???",
+    val `annexed files in working tree`: Long? = null
 )
 
 @Serializable
