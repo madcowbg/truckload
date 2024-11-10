@@ -168,7 +168,9 @@ fun showBackupperWindow() {
         separator()
 
         val status = if (GitBatchCopy.isRunning) "(running)" else "(stopped)"
+        if (backupperUI.runningOp != null) ImGui.beginDisabled()
         ImGui.checkbox("Enable Batch Copy", UISelection::enableGitBatch); sameLine(); ImGui.text(status)
+        if (backupperUI.runningOp != null) ImGui.endDisabled()
 
         val scheduledToCopy = backupperUI.scheduledToCopy
 
