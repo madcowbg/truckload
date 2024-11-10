@@ -4,7 +4,6 @@ import glm_.vec4.Vec4
 import gui.UISelection.selectedFile
 import gui.UISelection.selectedRepo
 import imgui.ImGui
-import imgui.ImGui.button
 import imgui.ImGui.sameLine
 import imgui.ImGui.separator
 import imgui.ImGui.text
@@ -41,14 +40,15 @@ class BackupperUI(val repoRoot: File, backupRepoUUIDs: List<String>) : Closeable
     var repositoriesInfo: CompletableFuture<CopyOpRepositoriesInfo>? = null
     var filesInfo: CompletableFuture<CopyOpFilesInRepositoryInfo>? = null
     var inAnyBackup: CompletableFuture<CopyOnBackupState>? = null
-    var copyingOperation: CompletableFuture<Unit>? =
-        null // = copyFilesRequiringBackup(repoRoot, backupRepoUUIDs, filesInfo, repositoriesInfo, inAnyBackup)
+    var scheduledToCopy: CompletableFuture<MutableList<String>>? = null
+
+    var runningOp: CompletableFuture<Unit>? = null
 
     override fun close() {
         repositoriesInfo?.cancel(true)
         filesInfo?.cancel(true)
         inAnyBackup?.cancel(true)
-        copyingOperation?.cancel(true)
+        scheduledToCopy?.cancel(true)
     }
 
     fun triggerLoadRepositoriesInfo() {
@@ -62,6 +62,28 @@ class BackupperUI(val repoRoot: File, backupRepoUUIDs: List<String>) : Closeable
 
         inAnyBackup?.cancel(true)
         inAnyBackup = filesInfo?.let { analyzeBackupState(backupRepoUUIDs, it) }
+
+        scheduledToCopy?.cancel(true)
+        scheduledToCopy = inAnyBackup?.thenApply { ArrayList(it.sortedFiles) }
+    }
+
+    fun triggerCopy(file: String, onSuccess: () -> Unit) {
+        if (runningOp != null) {
+            System.err.println("Cancelling current op as we triggered copy of $file")
+        }
+        runningOp?.cancel(true)
+
+        runningOp = CompletableFuture.supplyAsync {
+            val fileInfos = filesInfo?.join() ?: return@supplyAsync
+            val remotesInfo = repositoriesInfo?.join() ?: return@supplyAsync
+
+            val backupUUID = chooseBackupDestination(remotesInfo, fileInfos, backupRepoUUIDs, file)
+                ?: return@supplyAsync
+
+            backupFileToRemote(repoRoot, backupUUID = backupUUID, file = file).get()
+
+            onSuccess()
+        }
     }
 }
 
@@ -121,7 +143,7 @@ fun showBackupperWindow() {
             }
         }
 
-        var inAnyBackup = backupperUI.inAnyBackup
+        val inAnyBackup = backupperUI.inAnyBackup
         if (inAnyBackup == null || filesInfo?.isDone != true) {
             // show nothing, previous step triggers it
         } else if (!inAnyBackup.isDone) {
@@ -139,12 +161,69 @@ fun showBackupperWindow() {
                 "# files in no backup: ${ia.inAnyBackup.count { !it.value }}, " +
                         "${toGB(ia.inAnyBackup.filter { !it.value }.keys.sumOf { fi.fileInfos[it]?.size?.toLong() ?: 0 })} GB"
             )
-
             ia.storedFilesPerBackupRepo.forEach { (backupRepoUuid, files) ->
                 ImGui.text("  $backupRepoUuid: ${files.size} files")
             }
         }
+        separator()
+
+        val status = if (GitBatchCopy.isRunning) "(running)" else "(stopped)"
+        ImGui.checkbox("Enable Batch Copy", UISelection::enableGitBatch); sameLine(); ImGui.text(status)
+
+        val scheduledToCopy = backupperUI.scheduledToCopy
+
+        if (!UISelection.enableGitBatch) ImGui.beginDisabled()
+        ImGui.checkbox("Auto", UISelection::enableAutoCopy)
+        sameLine()
+        ImGui.text("(${(scheduledToCopy?.get()?.size ?: 0)})")
+        if (!UISelection.enableGitBatch) ImGui.endDisabled()
+
+        if (backupperUI.runningOp?.isDone == true) {
+            backupperUI.runningOp = null
+        }
+
+
+        if (UISelection.enableAutoCopy && UISelection.enableGitBatch) {
+            if (backupperUI.runningOp == null && scheduledToCopy != null) {
+                val sc = scheduledToCopy.get()
+                if (sc.size > 0) {
+                    triggerFileCopy(sc, sc.first(), backupperUI)
+                }
+            }
+        }
+
+        val hasRunningOp = (backupperUI.runningOp != null)
+
+        if (scheduledToCopy?.isDone == true) {
+            val sc = scheduledToCopy.get()
+
+            sc.take(20).forEach { file ->
+                if (hasRunningOp || !UISelection.enableGitBatch) ImGui.beginDisabled()
+                if (ImGui.button("Copy##$file")) {
+                    triggerFileCopy(sc, file, backupperUI)
+                }
+                if (hasRunningOp || !UISelection.enableGitBatch) ImGui.endDisabled()
+                sameLine()
+
+                val filesize = backupperUI.filesInfo?.get()?.fileInfos?.get(file)?.size
+                ImGui.text(filesize?.let {
+                    if (it != "?") String.format("%.2f", toGB(it.toLong())) + "GB"
+                    else "???"
+                } ?: "???")
+                sameLine()
+
+                ImGui.text(file)
+            }
+        }
         ImGui.end()
+    }
+}
+
+private fun triggerFileCopy(sc: MutableList<String>, file: String, backupperUI: BackupperUI) {
+    if (sc.contains(file)) {
+        backupperUI.triggerCopy(file) {
+            sc.remove(file)
+        }
     }
 }
 
@@ -258,12 +337,21 @@ object UISelection {
         set(value) {
             selectedFile = null
             selectedBackupRepoUUIDs.clear()
+            enableGitBatch = false
+            enableAutoCopy = false
             field = value
         }
 
     var selectedFile: Repo.RepoFile? = null
 
     var showBackupperWindow: Boolean = true
+
+    var enableGitBatch: Boolean = false
+        set(value) {
+            if (!value) GitBatchCopy.close()
+            field = value
+        }
+    var enableAutoCopy: Boolean = false
 }
 
 fun showGitExecutionStateWindow() {

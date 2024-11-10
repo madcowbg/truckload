@@ -60,7 +60,7 @@ fun copyFilesRequiringBackup(
     val remotesInfo = remotesInfoFuture.join()
     val inAnyBackup = inAnyBackupFuture.join()
 
-    inAnyBackup.sortedFiles.forEach { (file, _) ->
+    inAnyBackup.sortedFiles.forEach { file ->
         val backupUUID = chooseBackupDestination(remotesInfo, fileInfos, backupRepoUUIDs, file)
             ?: error("No place to backup $file - all remotes are full!")
 
@@ -69,21 +69,22 @@ fun copyFilesRequiringBackup(
     GitBatchCopy.close() // close if one remains open
 }
 
-private fun backupFileToRemote(repoRoot: File, backupUUID: String, file: String): CompletableFuture<Unit> = CompletableFuture.supplyAsync {
-    verboseOut.println("Determined to store to $backupUUID.")
-    verboseOut.println("Copying $file to store")
-    val gitCopyOperator = GitBatchCopy.toUUID(repoRoot, backupUUID)
-        ?: throw IllegalStateException("Can't find operator for $backupUUID")
-    val result = gitCopyOperator.executeCopy(file)
+fun backupFileToRemote(repoRoot: File, backupUUID: String, file: String): CompletableFuture<Unit> =
+    CompletableFuture.supplyAsync {
+        verboseOut.println("Determined to store to $backupUUID.")
+        verboseOut.println("Copying $file to store")
+        val gitCopyOperator = GitBatchCopy.toUUID(repoRoot, backupUUID)
+            ?: throw IllegalStateException("Can't find operator for $backupUUID")
+        val result = gitCopyOperator.executeCopy(file)
 
-    if (result == null) {
-        System.err.println("Copy process failed for $file, log tail:")
-        gitCopyOperator.tail(3).forEach { System.err.println(it) }
-        throw IllegalStateException("Copy process failed for $file")
+        if (result == null) {
+            System.err.println("Copy process failed for $file, log tail:")
+            gitCopyOperator.tail(3).forEach { System.err.println(it) }
+            throw IllegalStateException("Copy process failed for $file")
+        }
     }
-}
 
-private fun chooseBackupDestination(
+fun chooseBackupDestination(
     remotesInfo: CopyOpRepositoriesInfo,
     fileInfos: CopyOpFilesInRepositoryInfo,
     backupRepoUUIDs: List<String>,
@@ -171,7 +172,7 @@ data class CopyOnBackupState(
 ) {
     val sortedFiles = inAnyBackup
         .filter { !it.value }
-        .entries.sortedBy { it.key }
+        .keys.sorted()
 }
 
 fun analyzeBackupState(
@@ -282,6 +283,9 @@ class GitBatchCopy private constructor(private val repoRoot: File, val toUUID: S
                 copyOperator = null
             }
         }
+
+        val isRunning: Boolean
+            get() = synchronized(Companion) { copyOperator != null }
     }
 }
 
