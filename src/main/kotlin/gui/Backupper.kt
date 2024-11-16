@@ -283,7 +283,10 @@ private fun readFilesInfo(
                 current += chunk.size
                 infoProgressCallback(it.current.toInt(), it.max.toInt())
 
+                cmd.close()
+
                 cmd.results.map { decoded -> decoded.file to decoded }.toList()
+
             }.toMap()
         }
     return fileInfos

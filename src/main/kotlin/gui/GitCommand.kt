@@ -11,6 +11,7 @@ open class GitCommand(repoRoot: File, vararg args: String) : Closeable {
 
     init {
         GitCommandHistory.record(builder)
+        GitCommandHistory.changeState(builder, GitCommandState.RUNNING)
     }
 
     protected val process: Process = builder.start()
@@ -19,6 +20,7 @@ open class GitCommand(repoRoot: File, vararg args: String) : Closeable {
 
     override fun close() {
         process.destroy() // commands need exiting before closing
+        GitCommandHistory.changeState(builder, GitCommandState.FINISHED)
         process.waitFor()
     }
 }
