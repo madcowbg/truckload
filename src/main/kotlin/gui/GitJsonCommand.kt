@@ -3,20 +3,15 @@ package gui
 import kotlinx.serialization.DeserializationStrategy
 import java.io.Closeable
 import java.io.File
-import java.io.InputStreamReader
 
-abstract class GitPerLineOutputCommand<T>(repoRoot: File, vararg args: String) : Closeable {
-    private val process = ProcessBuilder("git", *args)
-        .directory(repoRoot)
-        .start()
-
-    protected val resultStream = InputStreamReader(process.inputStream).buffered()
+abstract class GitPerLineOutputCommand<T>(repoRoot: File, vararg args: String) : Closeable,
+    GitCommand(repoRoot, *args) {
 
     abstract val results: CompletableSequence<T>
 
     override fun close() {
-        results.close()
-        process.waitFor()
+        results.makeEager() // forces reading the remaining data
+        super.close()
     }
 }
 

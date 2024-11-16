@@ -220,6 +220,10 @@ data class CopyCmdResult(
 class GitBatchCopy private constructor(repoRoot: File, val toUUID: String) :
     GitBatchCommand(repoRoot, "annex", "copy", "--json", "--from-anywhere", "--to=$toUUID", "--batch") {
 
+    init {
+        verboseOut.println("Batch copy CMD: ${builder.command()}")
+    }
+
     private val log = mutableListOf<String>()
     fun tail(n: Int = Int.MAX_VALUE) = log.slice((log.size - n).coerceAtLeast(0) until log.size)
 

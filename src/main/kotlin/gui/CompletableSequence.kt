@@ -1,8 +1,6 @@
 package gui
 
-import java.io.Closeable
-
-class CompletableSequence<T>(dataSeq: Sequence<T>) : Closeable, Sequence<T> {
+class CompletableSequence<T>(dataSeq: Sequence<T>) : Sequence<T> {
     private val data = dataSeq.iterator()
 
     private var loadedData: Iterator<T>? = null
@@ -24,7 +22,7 @@ class CompletableSequence<T>(dataSeq: Sequence<T>) : Closeable, Sequence<T> {
         }
     }
 
-    override fun close() = synchronized(this@CompletableSequence) {
+    fun makeEager() = synchronized(this@CompletableSequence) {
         check(loadedData == null)
         loadedData = Iterable { data }.toList().iterator()
     }
