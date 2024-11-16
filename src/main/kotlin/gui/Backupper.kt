@@ -45,35 +45,28 @@ fun main(args: Array<String>): Unit = ArgParser(args).parseInto(::BackupperArgs)
 
         val inAnyBackup = analyzeBackupState(backupRepoUUIDs, filesInfo)
 
-        val op = copyFilesRequiringBackup(repoRoot, backupRepoUUIDs, filesInfo, repositoriesInfo, inAnyBackup)
-
-        op.get()
+        copyFilesRequiringBackup(repoRoot, backupRepoUUIDs, filesInfo, repositoriesInfo, inAnyBackup)
     }
 }
 
 suspend fun copyFilesRequiringBackup(
     repoRoot: File,
     backupRepoUUIDs: List<String>,
-    fileInfosFuture: CompletableFuture<CopyOpFilesInRepositoryInfo>,
+    fileInfos: CopyOpFilesInRepositoryInfo,
     remotesInfoFuture: Deferred<CopyOpRepositoriesInfo>,
-    inAnyBackupFuture: CompletableFuture<CopyOnBackupState>
-): CompletableFuture<Unit> {
+    inAnyBackup: CopyOnBackupState
+) {
     val remotesInfo = remotesInfoFuture.await()
 
-    return CompletableFuture.allOf(fileInfosFuture, inAnyBackupFuture).thenApply {
-        val fileInfos = fileInfosFuture.join()
-        val inAnyBackup = inAnyBackupFuture.join()
+    inAnyBackup.sortedFiles.forEach { file ->
+        val backupUUID = chooseBackupDestination(remotesInfo, fileInfos, backupRepoUUIDs, file)
+            ?: error("No place to backup $file - all remotes are full!")
 
-        inAnyBackup.sortedFiles.forEach { file ->
-            val backupUUID = chooseBackupDestination(remotesInfo, fileInfos, backupRepoUUIDs, file)
-                ?: error("No place to backup $file - all remotes are full!")
-
-            runBlocking {
-                backupFileToRemote(repoRoot, backupUUID = backupUUID, file = file)
-            }
+        runBlocking {
+            backupFileToRemote(repoRoot, backupUUID = backupUUID, file = file)
         }
-        GitBatchCopy.close() // close if one remains open
     }
+    GitBatchCopy.close() // close if one remains open
 }
 
 suspend fun backupFileToRemote(repoRoot: File, backupUUID: String, file: String) {
@@ -157,7 +150,7 @@ data class CopyOpFilesInRepositoryInfo(
 suspend fun loadFilesInRepositoryInfo(
     reposInfoFuture: Deferred<CopyOpRepositoriesInfo>,
     repoRoot: File
-): CompletableFuture<CopyOpFilesInRepositoryInfo> {
+): CopyOpFilesInRepositoryInfo {
     val reposInfo = reposInfoFuture.await()
     verboseOut.println("Reading `whereis` information for ${reposInfo.loadedRepositoriesInfo.`annexed files in working tree`} files from ${repoRoot.path}.")
 
@@ -170,7 +163,7 @@ suspend fun loadFilesInRepositoryInfo(
     verboseOut.println(
         "Found ${fileInfos.size} files in ${repoRoot.path} of total size ${toGB(fileInfos.values.sumOf { it.size.toLong() })}GB"
     )
-    return CompletableFuture.supplyAsync {CopyOpFilesInRepositoryInfo(fileWhereis, fileInfos)}
+    return CopyOpFilesInRepositoryInfo(fileWhereis, fileInfos)
 }
 
 data class CopyOnBackupState(
@@ -184,8 +177,8 @@ data class CopyOnBackupState(
 
 fun analyzeBackupState(
     backupRepoUUIDs: List<String>,
-    filesInfo: CompletableFuture<CopyOpFilesInRepositoryInfo>
-): CompletableFuture<CopyOnBackupState> = filesInfo.thenApplyAsync { filesInfo ->
+    filesInfo: CopyOpFilesInRepositoryInfo
+): CopyOnBackupState {
     val storedFilesPerBackupRepo = backupRepoUUIDs
         .associateWith { backupUuid ->
             filesInfo.fileWhereis
@@ -209,7 +202,7 @@ fun analyzeBackupState(
     storedFilesPerBackupRepo.forEach { (backupRepoUuid, files) ->
         verboseOut.println("  $backupRepoUuid: ${files.size} files")
     }
-    return@thenApplyAsync CopyOnBackupState(inAnyBackup, storedFilesPerBackupRepo)
+    return CopyOnBackupState(inAnyBackup, storedFilesPerBackupRepo)
 }
 
 //{"command":"copy",

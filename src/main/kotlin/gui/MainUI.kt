@@ -38,36 +38,39 @@ val GREEN = Vec4(.2f, 1f, .2f, 1f)
 val GRAY = Vec4(.7f, .7f, .7f, 1f)
 val YELLOW = Vec4(.6f, .6f, .2f, 1f)
 
-class BackupperUI(val repoRoot: File, backupRepoUUIDs: List<String>) : Closeable {
+class BackupperUI(val repoRoot: File, backupRepoUUIDs: List<String>) : Closeable,
+    CoroutineScope by CoroutineScope(Dispatchers.Default) {
     val backupRepoUUIDs: List<String> = ArrayList(backupRepoUUIDs)
     var repositoriesInfo: Deferred<CopyOpRepositoriesInfo>? = null
-    var filesInfo: CompletableFuture<CopyOpFilesInRepositoryInfo>? = null
-    var inAnyBackup: CompletableFuture<CopyOnBackupState>? = null
-    var scheduledToCopy: CompletableFuture<MutableList<String>>? = null
+    var filesInfo: Deferred<CopyOpFilesInRepositoryInfo>? = null
+    var inAnyBackup: Deferred<CopyOnBackupState>? = null
+    var scheduledToCopy: Deferred<MutableList<String>>? = null
 
     var runningOp: Job? = null
 
     override fun close() {
         repositoriesInfo?.cancel("Closing BackupperUI")
-        filesInfo?.cancel(true)
-        inAnyBackup?.cancel(true)
-        scheduledToCopy?.cancel(true)
+        filesInfo?.cancel("Closing BackupperUI")
+        inAnyBackup?.cancel("Closing BackupperUI")
+        scheduledToCopy?.cancel("Closing BackupperUI")
+
+        this.cancel("Stopping UI!")
     }
 
     fun triggerLoadRepositoriesInfo() {
         repositoriesInfo?.cancel("Stopping old")
-        repositoriesInfo = GlobalScope.async { loadRepositoriesInfo(repoRoot, backupRepoUUIDs) }
+        repositoriesInfo = async { loadRepositoriesInfo(repoRoot, backupRepoUUIDs) }
     }
 
     fun triggerLoadFilesInfo() {
-        filesInfo?.cancel(true)
-        filesInfo = repositoriesInfo?.let { runBlocking { loadFilesInRepositoryInfo(it, repoRoot)} }
+        filesInfo?.cancel("Stopping old")
+        filesInfo = repositoriesInfo?.let { async { loadFilesInRepositoryInfo(it, repoRoot) } }
 
-        inAnyBackup?.cancel(true)
-        inAnyBackup = filesInfo?.let { analyzeBackupState(backupRepoUUIDs, it) }
+        inAnyBackup?.cancel("Stopping old")
+        inAnyBackup = filesInfo?.let { async { analyzeBackupState(backupRepoUUIDs, it.await()) } }
 
-        scheduledToCopy?.cancel(true)
-        scheduledToCopy = inAnyBackup?.thenApply { ArrayList(it.sortedFiles) }
+        scheduledToCopy?.cancel("Stopping old")
+        scheduledToCopy = inAnyBackup?.let { async { ArrayList(it.await().sortedFiles) } }
     }
 
     suspend fun triggerCopy(file: String, onSuccess: () -> Unit) = coroutineScope {
@@ -77,7 +80,7 @@ class BackupperUI(val repoRoot: File, backupRepoUUIDs: List<String>) : Closeable
         runningOp?.cancel("Cancelling current op as we triggered copy of $file")
 
         runningOp = launch {
-            val fileInfos = filesInfo?.join() ?: return@launch
+            val fileInfos = filesInfo?.await() ?: return@launch
             val remotesInfo = repositoriesInfo?.await() ?: return@launch
 
             val backupUUID = chooseBackupDestination(remotesInfo, fileInfos, backupRepoUUIDs, file)
@@ -89,6 +92,7 @@ class BackupperUI(val repoRoot: File, backupRepoUUIDs: List<String>) : Closeable
         }
     }
 }
+
 
 var currentBackupper: BackupperUI? = null
 private fun getBackupper(currentRepo: RepoUI, backupRepoUUIDs: List<String>): BackupperUI {
@@ -134,10 +138,10 @@ fun showBackupperWindow() {
                 if (ImGui.button("Read Files")) {
                     backupperUI.triggerLoadFilesInfo()
                 }
-            } else if (!filesInfo.isDone) {
+            } else if (!filesInfo.isCompleted) {
                 ImGui.textColored(YELLOW, "Loading Files Info...")
             } else { // has files info
-                val fi = filesInfo.get()
+                val fi = runBlocking { filesInfo.await() }
 
                 ImGui.text("Found ${fi.fileInfos.size} files of which ${fi.fileInfos.values.count { it.size != "?" }} have file size")
                 ImGui.text(
@@ -147,13 +151,13 @@ fun showBackupperWindow() {
         }
 
         val inAnyBackup = backupperUI.inAnyBackup
-        if (inAnyBackup == null || filesInfo?.isDone != true) {
+        if (inAnyBackup == null || filesInfo?.isCompleted != true) {
             // show nothing, previous step triggers it
-        } else if (!inAnyBackup.isDone) {
+        } else if (!inAnyBackup.isCompleted) {
             ImGui.textColored(YELLOW, "Creating backup strategy...")
         } else { // has a strategy!
-            val fi = filesInfo.get()
-            val ia = inAnyBackup.get()
+            val fi = filesInfo.getCompleted()
+            val ia = inAnyBackup.getCompleted()
             ImGui.text("Repo contents:")
             ImGui.text("total # files: ${fi.fileWhereis.size}")
             ImGui.text(
@@ -180,7 +184,8 @@ fun showBackupperWindow() {
         if (!UISelection.enableGitBatch) ImGui.beginDisabled()
         ImGui.checkbox("Auto", UISelection::enableAutoCopy)
         sameLine()
-        ImGui.text("(${(scheduledToCopy?.get()?.size ?: 0)})")
+        val countToCopy = scheduledToCopy?.takeIf { it.isCompleted }?.getCompleted()?.size ?: 0
+        ImGui.text("($countToCopy)")
         if (!UISelection.enableGitBatch) ImGui.endDisabled()
 
         if (backupperUI.runningOp?.isCompleted == true) {
@@ -189,8 +194,8 @@ fun showBackupperWindow() {
 
 
         if (UISelection.enableAutoCopy && UISelection.enableGitBatch) {
-            if (backupperUI.runningOp == null && scheduledToCopy != null) {
-                val sc = scheduledToCopy.get()
+            if (backupperUI.runningOp == null && scheduledToCopy?.isCompleted == true) {
+                val sc = scheduledToCopy.getCompleted()
                 if (sc.size > 0) {
                     triggerFileCopy(sc, sc.first(), backupperUI)
                 }
@@ -199,8 +204,8 @@ fun showBackupperWindow() {
 
         val hasRunningOp = (backupperUI.runningOp != null)
 
-        if (scheduledToCopy?.isDone == true) {
-            val sc = scheduledToCopy.get()
+        if (scheduledToCopy?.isCompleted == true) {
+            val sc = scheduledToCopy.getCompleted()
 
             sc.take(20).forEach { file ->
                 if (hasRunningOp || !UISelection.enableGitBatch) ImGui.beginDisabled()
@@ -210,11 +215,15 @@ fun showBackupperWindow() {
                 if (hasRunningOp || !UISelection.enableGitBatch) ImGui.endDisabled()
                 sameLine()
 
-                val filesize = backupperUI.filesInfo?.get()?.fileInfos?.get(file)?.size
-                ImGui.text(filesize?.let {
-                    if (it != "?") String.format("%.2f", toGB(it.toLong())) + "GB"
-                    else "???"
-                } ?: "???")
+                val filesize = backupperUI.filesInfo
+                    ?.takeIf { it.isCompleted }
+                    ?.getCompleted()
+                    ?.fileInfos?.get(file)?.size
+                val filesizeFormatted = filesize
+                    ?.takeIf { it != "?" }
+                    ?.let { String.format("%.2f", toGB(it.toLong())) + "GB" }
+                    ?: "???"
+                ImGui.text(filesizeFormatted)
                 sameLine()
 
                 ImGui.text(file)
