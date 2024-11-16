@@ -1,6 +1,9 @@
 package gui
 
 import com.xenomachina.argparser.ArgParser
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import me.tongfei.progressbar.*
 import kotlinx.serialization.json.Json
@@ -35,52 +38,57 @@ fun main(args: Array<String>): Unit = ArgParser(args).parseInto(::BackupperArgs)
         System.err.println("Repo $repoDir is not a directory!")
         exitProcess(-1)
     }
+    runBlocking {
+        val repositoriesInfo = async { loadRepositoriesInfo(repoRoot, backupRepoUUIDs) }
 
-    val repositoriesInfo = loadRepositoriesInfo(repoRoot, backupRepoUUIDs)
+        val filesInfo = loadFilesInRepositoryInfo(repositoriesInfo, repoRoot)
 
-    val filesInfo = loadFilesInRepositoryInfo(repositoriesInfo, repoRoot)
+        val inAnyBackup = analyzeBackupState(backupRepoUUIDs, filesInfo)
 
-    val inAnyBackup = analyzeBackupState(backupRepoUUIDs, filesInfo)
+        val op = copyFilesRequiringBackup(repoRoot, backupRepoUUIDs, filesInfo, repositoriesInfo, inAnyBackup)
 
-    val op = copyFilesRequiringBackup(repoRoot, backupRepoUUIDs, filesInfo, repositoriesInfo, inAnyBackup)
-
-    op.get()
+        op.get()
+    }
 }
 
-fun copyFilesRequiringBackup(
+suspend fun copyFilesRequiringBackup(
     repoRoot: File,
     backupRepoUUIDs: List<String>,
     fileInfosFuture: CompletableFuture<CopyOpFilesInRepositoryInfo>,
-    remotesInfoFuture: CompletableFuture<CopyOpRepositoriesInfo>,
+    remotesInfoFuture: Deferred<CopyOpRepositoriesInfo>,
     inAnyBackupFuture: CompletableFuture<CopyOnBackupState>
-): CompletableFuture<Unit> = CompletableFuture.allOf(fileInfosFuture, remotesInfoFuture, inAnyBackupFuture).thenApply {
-    val fileInfos = fileInfosFuture.join()
-    val remotesInfo = remotesInfoFuture.join()
-    val inAnyBackup = inAnyBackupFuture.join()
+): CompletableFuture<Unit> {
+    val remotesInfo = remotesInfoFuture.await()
 
-    inAnyBackup.sortedFiles.forEach { file ->
-        val backupUUID = chooseBackupDestination(remotesInfo, fileInfos, backupRepoUUIDs, file)
-            ?: error("No place to backup $file - all remotes are full!")
+    return CompletableFuture.allOf(fileInfosFuture, inAnyBackupFuture).thenApply {
+        val fileInfos = fileInfosFuture.join()
+        val inAnyBackup = inAnyBackupFuture.join()
 
-        backupFileToRemote(repoRoot, backupUUID = backupUUID, file = file).get()
+        inAnyBackup.sortedFiles.forEach { file ->
+            val backupUUID = chooseBackupDestination(remotesInfo, fileInfos, backupRepoUUIDs, file)
+                ?: error("No place to backup $file - all remotes are full!")
+
+            runBlocking {
+                backupFileToRemote(repoRoot, backupUUID = backupUUID, file = file)
+            }
+        }
+        GitBatchCopy.close() // close if one remains open
     }
-    GitBatchCopy.close() // close if one remains open
 }
 
-fun backupFileToRemote(repoRoot: File, backupUUID: String, file: String): CompletableFuture<Unit> =
-    CompletableFuture.supplyAsync {
-        verboseOut.println("Determined to store to $backupUUID.")
-        verboseOut.println("Copying $file to store")
-        val gitCopyOperator = GitBatchCopy.toUUID(repoRoot, backupUUID)
-            ?: throw IllegalStateException("Can't find operator for $backupUUID")
-        val result = gitCopyOperator.executeCopy(file)
+suspend fun backupFileToRemote(repoRoot: File, backupUUID: String, file: String) {
+    verboseOut.println("Determined to store to $backupUUID.")
+    verboseOut.println("Copying $file to store")
+    val gitCopyOperator = GitBatchCopy.toUUID(repoRoot, backupUUID)
+        ?: throw IllegalStateException("Can't find operator for $backupUUID")
+    val result = gitCopyOperator.executeCopy(file)
 
-        if (result == null) {
-            System.err.println("Copy process failed for $file, log tail:")
-            gitCopyOperator.tail(3).forEach { System.err.println(it) }
-            throw IllegalStateException("Copy process failed for $file")
-        }
+    if (result == null) {
+        System.err.println("Copy process failed for $file, log tail:")
+        gitCopyOperator.tail(3).forEach { System.err.println(it) }
+        throw IllegalStateException("Copy process failed for $file")
     }
+}
 
 fun chooseBackupDestination(
     remotesInfo: CopyOpRepositoriesInfo,
@@ -106,10 +114,10 @@ data class CopyOpRepositoriesInfo(
     val remotesInfo: Map<String, RemoteInfoQueryResult?>
 )
 
-fun loadRepositoriesInfo(
+suspend fun loadRepositoriesInfo(
     repoRoot: File,
     backupRepoUUIDs: List<String>
-): CompletableFuture<CopyOpRepositoriesInfo> = CompletableFuture.supplyAsync {
+): CopyOpRepositoriesInfo {
     verboseOut.println("Loading git-annex info in ${repoRoot.path}")
     val loadedRepositoriesInfo =
         Git.executeOnAnnex(repoRoot, RepositoriesInfoQueryResult.serializer(), "info", "--json").get()
@@ -138,7 +146,7 @@ fun loadRepositoriesInfo(
         Git.executeOnAnnex(repoRoot, RemoteInfoQueryResult.serializer(), "info", "--json", uuid).get()
     }
 
-    return@supplyAsync CopyOpRepositoriesInfo(loadedRepositoriesInfo, remotesInfo)
+    return CopyOpRepositoriesInfo(loadedRepositoriesInfo, remotesInfo)
 }
 
 data class CopyOpFilesInRepositoryInfo(
@@ -146,10 +154,11 @@ data class CopyOpFilesInRepositoryInfo(
     val fileInfos: Map<String, FileInfoQueryResult>
 )
 
-fun loadFilesInRepositoryInfo(
-    reposInfoFuture: CompletableFuture<CopyOpRepositoriesInfo>,
+suspend fun loadFilesInRepositoryInfo(
+    reposInfoFuture: Deferred<CopyOpRepositoriesInfo>,
     repoRoot: File
-): CompletableFuture<CopyOpFilesInRepositoryInfo> = reposInfoFuture.thenApplyAsync { reposInfo ->
+): CompletableFuture<CopyOpFilesInRepositoryInfo> {
+    val reposInfo = reposInfoFuture.await()
     verboseOut.println("Reading `whereis` information for ${reposInfo.loadedRepositoriesInfo.`annexed files in working tree`} files from ${repoRoot.path}.")
 
     val fileWhereis = readWhereisInformationForFiles(repoRoot, reposInfo.loadedRepositoriesInfo)
@@ -161,7 +170,7 @@ fun loadFilesInRepositoryInfo(
     verboseOut.println(
         "Found ${fileInfos.size} files in ${repoRoot.path} of total size ${toGB(fileInfos.values.sumOf { it.size.toLong() })}GB"
     )
-    return@thenApplyAsync CopyOpFilesInRepositoryInfo(fileWhereis, fileInfos)
+    return CompletableFuture.supplyAsync {CopyOpFilesInRepositoryInfo(fileWhereis, fileInfos)}
 }
 
 data class CopyOnBackupState(
@@ -227,23 +236,21 @@ class GitBatchCopy private constructor(repoRoot: File, val toUUID: String) :
     private val log = mutableListOf<String>()
     fun tail(n: Int = Int.MAX_VALUE) = log.slice((log.size - n).coerceAtLeast(0) until log.size)
 
-    fun executeCopy(file: String): CopyCmdResult? {
-        synchronized(this) {
-            verboseOut.println("Copying $file...")
+    suspend fun executeCopy(file: String): CopyCmdResult? {
+        verboseOut.println("Copying $file...")
 
-            log.add("[CMD]$file")
-            val result = runOnce(batchUnitCmd = file) { resultStr ->
-                log.add("[RES]$resultStr")
-                if (resultStr == "") { // operation did nothing
-                    null
-                } else {
-                    jsonDecoder.decodeFromString(CopyCmdResult.serializer(), resultStr)
-                }
+        log.add("[CMD]$file")
+        val result = runOnce(batchUnitCmd = file) { resultStr ->
+            log.add("[RES]$resultStr")
+            if (resultStr == "") { // operation did nothing
+                null
+            } else {
+                jsonDecoder.decodeFromString(CopyCmdResult.serializer(), resultStr)
             }
-
-            verboseOut.println("Copying done!")
-            return result
         }
+
+        verboseOut.println("Copying done!")
+        return result
     }
 
     companion object : Closeable {

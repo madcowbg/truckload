@@ -1,8 +1,11 @@
 package gui
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.io.File
 import java.io.OutputStreamWriter
+import java.util.concurrent.CompletableFuture
 
 open class GitBatchCommand(protected val repoRoot: File, vararg args: String) : Closeable, GitCommand(repoRoot, *args) {
     private val commandStream = OutputStreamWriter(process.outputStream)
@@ -11,16 +14,19 @@ open class GitBatchCommand(protected val repoRoot: File, vararg args: String) : 
         super.close()
     }
 
-    fun <T> runOnce(batchUnitCmd: String, deserializer: (String) -> T): T {
-        verboseOut.println("Issuing batch cmd [$batchUnitCmd]...")
+    suspend fun <T> runOnce(batchUnitCmd: String, deserializer: (String) -> T): T =
+        withContext(Dispatchers.IO) {
+            synchronized(process) {
+                verboseOut.println("Issuing batch cmd [$batchUnitCmd]...")
 
-        commandStream.write(batchUnitCmd + "\n")
-        commandStream.flush()
+                commandStream.write(batchUnitCmd + "\n")
+                commandStream.flush()
 
-        verboseOut.println("Waiting for results...")
-        val resultStr = resultStream.readLine()
-        verboseOut.println("Result: $resultStr")
+                verboseOut.println("Waiting for results...")
+                val resultStr = resultStream.readLine()
+                verboseOut.println("Result: $resultStr")
 
-        return deserializer(resultStr)
-    }
+                deserializer(resultStr)
+            }
+        }
 }

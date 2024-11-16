@@ -12,6 +12,7 @@ import imgui.dsl.tabBar
 import imgui.dsl.tabItem
 import imgui.MutableProperty
 import imgui.dsl
+import kotlinx.coroutines.*
 import java.io.Closeable
 import java.io.File
 import java.util.concurrent.CompletableFuture
@@ -39,28 +40,28 @@ val YELLOW = Vec4(.6f, .6f, .2f, 1f)
 
 class BackupperUI(val repoRoot: File, backupRepoUUIDs: List<String>) : Closeable {
     val backupRepoUUIDs: List<String> = ArrayList(backupRepoUUIDs)
-    var repositoriesInfo: CompletableFuture<CopyOpRepositoriesInfo>? = null
+    var repositoriesInfo: Deferred<CopyOpRepositoriesInfo>? = null
     var filesInfo: CompletableFuture<CopyOpFilesInRepositoryInfo>? = null
     var inAnyBackup: CompletableFuture<CopyOnBackupState>? = null
     var scheduledToCopy: CompletableFuture<MutableList<String>>? = null
 
-    var runningOp: CompletableFuture<Unit>? = null
+    var runningOp: Job? = null
 
     override fun close() {
-        repositoriesInfo?.cancel(true)
+        repositoriesInfo?.cancel("Closing BackupperUI")
         filesInfo?.cancel(true)
         inAnyBackup?.cancel(true)
         scheduledToCopy?.cancel(true)
     }
 
     fun triggerLoadRepositoriesInfo() {
-        repositoriesInfo?.cancel(true)
-        repositoriesInfo = loadRepositoriesInfo(repoRoot, backupRepoUUIDs)
+        repositoriesInfo?.cancel("Stopping old")
+        repositoriesInfo = GlobalScope.async { loadRepositoriesInfo(repoRoot, backupRepoUUIDs) }
     }
 
     fun triggerLoadFilesInfo() {
         filesInfo?.cancel(true)
-        filesInfo = repositoriesInfo?.let { loadFilesInRepositoryInfo(it, repoRoot) }
+        filesInfo = repositoriesInfo?.let { runBlocking { loadFilesInRepositoryInfo(it, repoRoot)} }
 
         inAnyBackup?.cancel(true)
         inAnyBackup = filesInfo?.let { analyzeBackupState(backupRepoUUIDs, it) }
@@ -69,20 +70,20 @@ class BackupperUI(val repoRoot: File, backupRepoUUIDs: List<String>) : Closeable
         scheduledToCopy = inAnyBackup?.thenApply { ArrayList(it.sortedFiles) }
     }
 
-    fun triggerCopy(file: String, onSuccess: () -> Unit) {
+    suspend fun triggerCopy(file: String, onSuccess: () -> Unit) = coroutineScope {
         if (runningOp != null) {
             System.err.println("Cancelling current op as we triggered copy of $file")
         }
-        runningOp?.cancel(true)
+        runningOp?.cancel("Cancelling current op as we triggered copy of $file")
 
-        runningOp = CompletableFuture.supplyAsync {
-            val fileInfos = filesInfo?.join() ?: return@supplyAsync
-            val remotesInfo = repositoriesInfo?.join() ?: return@supplyAsync
+        runningOp = launch {
+            val fileInfos = filesInfo?.join() ?: return@launch
+            val remotesInfo = repositoriesInfo?.await() ?: return@launch
 
             val backupUUID = chooseBackupDestination(remotesInfo, fileInfos, backupRepoUUIDs, file)
-                ?: return@supplyAsync
+                ?: return@launch
 
-            backupFileToRemote(repoRoot, backupUUID = backupUUID, file = file).get()
+            backupFileToRemote(repoRoot, backupUUID = backupUUID, file = file)
 
             onSuccess()
         }
@@ -119,10 +120,10 @@ fun showBackupperWindow() {
             if (ImGui.button("Read Repositories Info")) {
                 backupperUI.triggerLoadRepositoriesInfo()
             }
-        } else if (!repositoriesInfo.isDone) {
+        } else if (!repositoriesInfo.isCompleted) {
             ImGui.textColored(YELLOW, "Loading Repositories Info...")
         } else { // has repo info
-            val ri = repositoriesInfo.get()
+            val ri = runBlocking { repositoriesInfo.await() }
             ImGui.text("Found ${ri.remotesInfo.size} repositories!") // TODO more info
             ImGui.text("Need to read `whereis` information for ${ri.loadedRepositoriesInfo.`annexed files in working tree`} files.")
         }
@@ -182,7 +183,7 @@ fun showBackupperWindow() {
         ImGui.text("(${(scheduledToCopy?.get()?.size ?: 0)})")
         if (!UISelection.enableGitBatch) ImGui.endDisabled()
 
-        if (backupperUI.runningOp?.isDone == true) {
+        if (backupperUI.runningOp?.isCompleted == true) {
             backupperUI.runningOp = null
         }
 
@@ -223,7 +224,7 @@ fun showBackupperWindow() {
     }
 }
 
-private fun triggerFileCopy(sc: MutableList<String>, file: String, backupperUI: BackupperUI) {
+private fun triggerFileCopy(sc: MutableList<String>, file: String, backupperUI: BackupperUI) = GlobalScope.launch {
     if (sc.contains(file)) {
         backupperUI.triggerCopy(file) {
             sc.remove(file)
