@@ -14,9 +14,9 @@ open class GitCommand(repoRoot: File, vararg args: String) : Closeable {
         GitCommandHistory.changeState(builder, GitCommandState.RUNNING)
     }
 
-    protected val process: Process = builder.start()
+    val process: Process = builder.start()
 
-    protected val resultStream = InputStreamReader(process.inputStream).buffered()
+    val resultStream = InputStreamReader(process.inputStream).buffered()
 
     override fun close() {
         process.destroy() // commands need exiting before closing

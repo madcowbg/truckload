@@ -234,7 +234,7 @@ class GitBatchCopy(private val repoRoot: File) : Closeable {
         this.uuidOfCommand = toUUID
         val cmd = this.cmd ?: return null
 
-        verboseOut.println("Batch copy CMD: ${cmd.builder?.command()}")
+        verboseOut.println("Batch copy CMD: ${cmd.cmd.builder?.command()}")
 
         verboseOut.println("Copying $file...")
 
