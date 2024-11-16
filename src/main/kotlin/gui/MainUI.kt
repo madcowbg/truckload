@@ -3,6 +3,10 @@ package gui
 import glm_.vec4.Vec4
 import gui.UISelection.selectedFile
 import gui.UISelection.selectedRepo
+import gui.deprecated.*
+import gui.git.CopyOnBackupState
+import gui.git.CopyOpFilesInRepositoryInfo
+import gui.git.CopyOpRepositoriesInfo
 import imgui.ImGui
 import imgui.ImGui.sameLine
 import imgui.ImGui.separator
@@ -14,6 +18,7 @@ import imgui.dsl.tabBar
 import imgui.dsl.tabItem
 import kotlinx.coroutines.*
 import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.json.Json
 import java.io.BufferedReader
 import java.io.Closeable
 import java.io.File
@@ -563,3 +568,8 @@ fun showSettingsWindow() {
     )             // Edit bools storing our window open/close state
     ImGui.end()
 }
+
+fun toGB(bytes: Long) =
+    bytes.toFloat() / (1 shl 30)
+
+val jsonDecoder = Json { ignoreUnknownKeys = true }

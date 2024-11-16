@@ -1,11 +1,14 @@
-package gui
+package gui.deprecated
 
 import com.xenomachina.argparser.ArgParser
-import gui.deprecated.*
+import gui.*
+import gui.git.CopyCmdResult
+import gui.git.CopyOnBackupState
+import gui.git.CopyOpFilesInRepositoryInfo
+import gui.git.CopyOpRepositoriesInfo
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.Serializable
 import me.tongfei.progressbar.*
 import kotlinx.serialization.json.Json
 import java.io.Closeable
@@ -25,7 +28,6 @@ class BackupperArgs(parser: ArgParser) {
 
 val verboseOut: PrintStream = System.out
 
-val jsonDecoder = Json { ignoreUnknownKeys = true }
 private const val driveBufferSize: Long = 50 * (1L shl 30) // 50GB
 
 fun main(args: Array<String>): Unit = ArgParser(args).parseInto(::BackupperArgs).run {
@@ -94,11 +96,6 @@ fun chooseBackupDestination(
     return backupUUID
 }
 
-data class CopyOpRepositoriesInfo(
-    val loadedRepositoriesInfo: RepositoriesInfoQueryResult,
-    val remotesInfo: Map<String, RemoteInfoQueryResult?>
-)
-
 suspend fun loadRepositoriesInfo(
     repoRoot: File,
     backupRepoUUIDs: List<String>
@@ -134,11 +131,6 @@ suspend fun loadRepositoriesInfo(
     return CopyOpRepositoriesInfo(loadedRepositoriesInfo, remotesInfo)
 }
 
-data class CopyOpFilesInRepositoryInfo(
-    val fileWhereis: Map<String, WhereisQueryResult>,
-    val fileInfos: Map<String, FileInfoQueryResult>
-)
-
 typealias ProgressCallback = (current: Int, max: Int) -> Unit
 
 suspend fun loadFilesInRepositoryInfo(
@@ -161,15 +153,6 @@ suspend fun loadFilesInRepositoryInfo(
         "Found ${fileInfos.size} files in ${repoRoot.path} of total size ${toGB(fileInfos.values.sumOf { it.size.toLong() })}GB"
     )
     return CopyOpFilesInRepositoryInfo(fileWhereis, fileInfos)
-}
-
-data class CopyOnBackupState(
-    val inAnyBackup: Map<String, Boolean>,
-    val storedFilesPerBackupRepo: Map<String, List<WhereisQueryResult>>
-) {
-    val sortedFiles = inAnyBackup
-        .filter { !it.value }
-        .keys.sorted()
 }
 
 fun analyzeBackupState(
@@ -201,20 +184,6 @@ fun analyzeBackupState(
     }
     return CopyOnBackupState(inAnyBackup, storedFilesPerBackupRepo)
 }
-
-//{"command":"copy",
-// "error-messages":[],
-// "file":"bulkexport\\VID_20230507_125125_001\\default_preview.mp4",
-// "input":["bulkexport\\VID_20230507_125125_001\\default_preview.mp4"],
-// "key":"SHA256E-s1660709755--d3abb4d455340d73215d1f98b0648c001fcffa96820b8f2f315480d279a8128a.mp4",
-// "note":"from backups-vol-01-Insta360...",
-// "success":true}
-@Serializable
-data class CopyCmdResult(
-    val file: String,
-    //@SerialName("error-messages") val errorMessages: List<Object>,
-    val success: Boolean
-)
 
 class GitBatchCopy(private val repoRoot: File) : Closeable {
     var uuidOfCommand: String? = null
