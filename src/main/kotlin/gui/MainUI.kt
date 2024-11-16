@@ -357,21 +357,18 @@ private fun RepoUI.showRepoDescriptorLine(it: RepositoriesInfoQueryResult, repo:
     })
 }
 
-class RepoUI(val repo: Repo) {
+class RepoUI(val repo: Repo) : Closeable {
     private var loadedInfo: Deferred<RepositoriesInfoQueryResult?>? = null
+    private val coroutineScope = CoroutineScope(Dispatchers.Default)
 
     val info: Deferred<RepositoriesInfoQueryResult?>
         get() {
             var info = loadedInfo
             if (info == null) {
-                info = GlobalScope.async { // fixme should not use global scope
-                    GitCommand(
-                        repo.root,
+                info = coroutineScope.async {
+                    GitQuery(
+                        GitProcess(repo.root, "annex", "info", "--fast", "--json"),
                         RepositoriesInfoQueryResult.serializer(),
-                        "annex",
-                        "info",
-                        "--fast",
-                        "--json"
                     ).execute()
                 }
                 loadedInfo = info
@@ -380,8 +377,11 @@ class RepoUI(val repo: Repo) {
         }
 
     fun refresh() {
-        loadedInfo = GlobalScope.async { // fixme should not use global scope
-            GitCommand(repo.root, RepositoriesInfoQueryResult.serializer(), "annex", "info", "--json").execute()
+        loadedInfo = coroutineScope.async {
+            GitQuery(
+                GitProcess(repo.root, "annex", "info", "--json"),
+                RepositoriesInfoQueryResult.serializer()
+            ).execute()
         }
     }
 
@@ -389,21 +389,21 @@ class RepoUI(val repo: Repo) {
 
     fun remoteInfo(uuid: String): Deferred<RemoteInfoQueryResult?> =
         remotesInfo.computeIfAbsent(uuid) {
-            GlobalScope.async { // fixme should not use global scope
-                GitCommand(
-                    repo.root,
+            coroutineScope.async {
+                GitQuery(
+                    GitProcess(repo.root, "annex", "info", "--json", "--fast", uuid),
                     RemoteInfoQueryResult.serializer(),
-                    "annex",
-                    "info",
-                    "--json",
-                    "--fast",
-                    uuid
                 ).execute()
             }
         }
+
+    override fun close() {
+        coroutineScope.cancel()
+    }
 }
 
-class GitCommand<T>(private val repoRoot: File, val serializer: DeserializationStrategy<T>, vararg args: String) {
+class GitProcess(private val repoRoot: File, vararg args: String) {
+
     val builder = ProcessBuilder("git", *args)
         .redirectError(ProcessBuilder.Redirect.INHERIT)
         .directory(repoRoot)
@@ -412,20 +412,32 @@ class GitCommand<T>(private val repoRoot: File, val serializer: DeserializationS
         GitCommandHistory.record(builder)
     }
 
-    suspend fun execute(): T? {
+    fun onStart() {
         GitCommandHistory.changeState(builder, GitCommandState.RUNNING)
-        val process: Process = withContext(Dispatchers.IO) {
-            builder.start()
-        }
+    }
 
-        withContext(Dispatchers.IO) {
-            process.waitFor()
-        }
-
-        process.destroy() // commands need exiting before closing
+    fun onFinish() {
         GitCommandHistory.changeState(builder, GitCommandState.FINISHED)
+    }
 
-        return toJsonIfSuccessfulAndNonempty(process, serializer)
+}
+
+class GitQuery<T>(val process: GitProcess, val serializer: DeserializationStrategy<T>) {
+    suspend fun execute(): T? {
+        this.process.onStart()
+        try {
+            val process: Process = withContext(Dispatchers.IO) {
+                process.builder.start()
+            }
+
+            withContext(Dispatchers.IO) {
+                process.waitFor()
+            }
+
+            return toJsonIfSuccessfulAndNonempty(process, serializer)
+        } finally {
+            this.process.onFinish()
+        }
     }
 }
 
@@ -568,6 +580,7 @@ fun showSettingsWindow() {
     ImGui.text("Repos:")
     AppSettings.repos.forEach {
         if (ImGui.button(it)) {
+            selectedRepo?.close()
             selectedRepo = RepoUI(Repo(File(it)))
         }
     }
