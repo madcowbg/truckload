@@ -3,19 +3,21 @@ package gui
 import glm_.vec4.Vec4
 import gui.UISelection.selectedFile
 import gui.UISelection.selectedRepo
-import gui.deprecated.*
 import imgui.ImGui
 import imgui.ImGui.sameLine
 import imgui.ImGui.separator
 import imgui.ImGui.text
 import imgui.ImGui.textColored
-import imgui.dsl.tabBar
-import imgui.dsl.tabItem
 import imgui.MutableProperty
 import imgui.dsl
+import imgui.dsl.tabBar
+import imgui.dsl.tabItem
 import kotlinx.coroutines.*
+import kotlinx.serialization.DeserializationStrategy
+import java.io.BufferedReader
 import java.io.Closeable
 import java.io.File
+import java.io.InputStreamReader
 
 fun runMainUILoop() {
     showSettingsWindow()
@@ -358,13 +360,13 @@ class RepoUI(val repo: Repo) {
             var info = loadedInfo
             if (info == null) {
                 info = GlobalScope.async { // fixme should not use global scope
-                    Git.executeOnAnnex(
+                    GitCommand(
                         repo.root,
                         RepositoriesInfoQueryResult.serializer(),
                         "info",
                         "--fast",
                         "--json"
-                    )
+                    ).execute()
                 }
                 loadedInfo = info
             }
@@ -373,7 +375,7 @@ class RepoUI(val repo: Repo) {
 
     fun refresh() {
         loadedInfo = GlobalScope.async { // fixme should not use global scope
-            Git.executeOnAnnex(repo.root, RepositoriesInfoQueryResult.serializer(), "info", "--json")
+            GitCommand(repo.root, RepositoriesInfoQueryResult.serializer(), "info", "--json").execute()
         }
     }
 
@@ -382,9 +384,49 @@ class RepoUI(val repo: Repo) {
     fun remoteInfo(uuid: String): Deferred<RemoteInfoQueryResult?> =
         remotesInfo.computeIfAbsent(uuid) {
             GlobalScope.async { // fixme should not use global scope
-                Git.executeOnAnnex(repo.root, RemoteInfoQueryResult.serializer(), "info", "--json", "--fast", uuid)
+                GitCommand(repo.root, RemoteInfoQueryResult.serializer(), "info", "--json", "--fast", uuid).execute()
             }
         }
+}
+
+class GitCommand<T>(private val repoRoot: File, val serializer: DeserializationStrategy<T>, vararg args: String) {
+    val builder = ProcessBuilder("git", *args)
+        .redirectError(ProcessBuilder.Redirect.INHERIT)
+        .directory(repoRoot)
+    init {
+        GitCommandHistory.record(builder)
+    }
+
+    suspend fun execute(): T? {
+        GitCommandHistory.changeState(builder, GitCommandState.RUNNING)
+        val process: Process = withContext(Dispatchers.IO) {
+            builder.start()
+        }
+
+        process.destroy() // commands need exiting before closing
+        GitCommandHistory.changeState(builder, GitCommandState.FINISHED)
+
+        withContext(Dispatchers.IO) {
+            process.waitFor()
+        }
+
+        return toJsonIfSuccessfulAndNonempty(process, serializer)
+    }
+}
+
+fun <T> toJsonIfSuccessfulAndNonempty(process: Process, strategy: DeserializationStrategy<T>): T? {
+    return if (process.exitValue() != 0) {
+        System.err.println(BufferedReader(InputStreamReader(process.errorStream)).readText())
+        null
+    } else {
+        val result = BufferedReader(InputStreamReader(process.inputStream)).readText()
+        if (result.isEmpty()) {
+            System.err.println("Process returned no result")
+            null
+        } else {
+            jsonDecoder.decodeFromString(strategy, result)
+        }
+    }
 }
 
 object UISelection {
