@@ -12,11 +12,9 @@ import imgui.dsl.tabBar
 import imgui.dsl.tabItem
 import imgui.MutableProperty
 import imgui.dsl
-import imgui.dsl.withItemWidth
 import kotlinx.coroutines.*
 import java.io.Closeable
 import java.io.File
-import java.util.concurrent.CompletableFuture
 
 fun runMainUILoop() {
     showSettingsWindow()
@@ -288,13 +286,13 @@ fun showRepoInformationWindow() {
 
         separator()
 
-        if (!shownRepo.info.isDone) {
+        if (!shownRepo.info.isCompleted) {
             ImGui.textColored(YELLOW, "Loading...")
         }
 
         tabBar("RepoSettings") {
             tabItem("Basic Info") {
-                shownRepo.info.takeIf { it.isDone }?.get()?.let {
+                shownRepo.info.takeIf { it.isCompleted }?.getCompleted()?.let {
                     if (!it.success) {
                         textColored(RED, "Error reading repo!")
                     } else {
@@ -322,7 +320,7 @@ private fun RepoUI.showRepoDescriptorLine(it: RepositoriesInfoQueryResult, repo:
     textColored(color, repo.description)
     sameLine()
     if (ImGui.button(repo.uuid)) {
-        val info = this.remoteInfo(repo.uuid).get()
+        val info = this.remoteInfo(repo.uuid).takeIf { it.isCompleted }?.getCompleted()
         if (info != null) {
             val pathToNavigate = if (repo.here) {
                 this.repo.root.path
@@ -352,13 +350,13 @@ private fun RepoUI.showRepoDescriptorLine(it: RepositoriesInfoQueryResult, repo:
 }
 
 class RepoUI(val repo: Repo) {
-    private var loadedInfo: CompletableFuture<RepositoriesInfoQueryResult?>? = null
+    private var loadedInfo: Deferred<RepositoriesInfoQueryResult?>? = null
 
-    val info: CompletableFuture<RepositoriesInfoQueryResult?>
+    val info: Deferred<RepositoriesInfoQueryResult?>
         get() {
             var info = loadedInfo
             if (info == null) {
-                info =
+                info = GlobalScope.async { // fixme should not use global scope
                     Git.executeOnAnnex(
                         repo.root,
                         RepositoriesInfoQueryResult.serializer(),
@@ -366,20 +364,25 @@ class RepoUI(val repo: Repo) {
                         "--fast",
                         "--json"
                     )
+                }
                 loadedInfo = info
             }
             return info
         }
 
     fun refresh() {
-        loadedInfo = Git.executeOnAnnex(repo.root, RepositoriesInfoQueryResult.serializer(), "info", "--json")
+        loadedInfo = GlobalScope.async { // fixme should not use global scope
+            Git.executeOnAnnex(repo.root, RepositoriesInfoQueryResult.serializer(), "info", "--json")
+        }
     }
 
-    private val remotesInfo: MutableMap<String, CompletableFuture<RemoteInfoQueryResult?>> = mutableMapOf()
+    private val remotesInfo: MutableMap<String, Deferred<RemoteInfoQueryResult?>> = mutableMapOf()
 
-    fun remoteInfo(uuid: String): CompletableFuture<RemoteInfoQueryResult?> =
+    fun remoteInfo(uuid: String): Deferred<RemoteInfoQueryResult?> =
         remotesInfo.computeIfAbsent(uuid) {
-            Git.executeOnAnnex(repo.root, RemoteInfoQueryResult.serializer(), "info", "--json", "--fast", uuid)
+            GlobalScope.async { // fixme should not use global scope
+                Git.executeOnAnnex(repo.root, RemoteInfoQueryResult.serializer(), "info", "--json", "--fast", uuid)
+            }
         }
 }
 
@@ -424,10 +427,10 @@ fun showSelectedFileDetailsWindow() {
     if (selectedFile != null) {
         ImGui.text(selectedFile!!.name)
         ImGui.separator()
-        if (!selectedFile!!.whereis.isDone) {
+        if (!selectedFile!!.whereis.isCompleted) {
             ImGui.text("Running whereis...")
         } else {
-            selectedFile!!.whereis.resultNow()?.let { that ->
+            selectedFile!!.whereis.takeIf { it.isCompleted }?.getCompleted()?.let { that ->
                 ImGui.text("Found ${that.whereis.size} locations.")
                 that.whereis.forEach {
                     ImGui.text(it.uuid); sameLine()
@@ -439,21 +442,21 @@ fun showSelectedFileDetailsWindow() {
         separator()
 
         selectedFile!!.find.let {
-            if (!it.isDone) {
+            if (!it.isCompleted) {
                 text("Running find...")
             } else {
-                ImGui.text("File: ${it.get()?.file.toString()}")
-                ImGui.text("Backend: ${it.get()?.backend.toString()}")
-                ImGui.text("Bytesize: ${it.get()?.bytesize.toString()}")
+                ImGui.text("File: ${it.getCompleted()?.file.toString()}")
+                ImGui.text("Backend: ${it.getCompleted()?.backend.toString()}")
+                ImGui.text("Bytesize: ${it.getCompleted()?.bytesize.toString()}")
             }
         }
 
         selectedFile!!.info.let {
-            if (!it.isDone) {
+            if (!it.isCompleted) {
                 text("Running info...")
             } else {
-                ImGui.text("Is Present: ${it.get()?.present.toString()}")
-                ImGui.text("size: ${it.get()?.size.toString()}")
+                ImGui.text("Is Present: ${it.getCompleted()?.present.toString()}")
+                ImGui.text("size: ${it.getCompleted()?.size.toString()}")
             }
         }
     }

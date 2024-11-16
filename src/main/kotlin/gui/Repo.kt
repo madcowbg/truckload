@@ -1,5 +1,8 @@
 package gui
 
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.async
 import kotlinx.serialization.builtins.nullable
 import java.io.File
 import java.util.concurrent.CompletableFuture
@@ -13,16 +16,22 @@ class Repo(val root: File) {
         override val name: String
             get() = file.name
 
-        val whereis: CompletableFuture<WhereisQueryResult?> by lazy {
-            Git.executeOnAnnex(root, WhereisQueryResult.serializer(), "whereis", "--json", file.relativeTo(root).path)
+        val whereis: Deferred<WhereisQueryResult?> by lazy {
+            GlobalScope.async { // fixme
+                Git.executeOnAnnex(root, WhereisQueryResult.serializer(), "whereis", "--json", file.relativeTo(root).path)
+            }
         }
 
-        val info: CompletableFuture<FileInfoQueryResult?> by lazy {
-            Git.executeOnAnnex(root, FileInfoQueryResult.serializer(), "info", "--json", file.relativeTo(root).path)
+        val info: Deferred<FileInfoQueryResult?> by lazy {
+            GlobalScope.async { // fixme
+                Git.executeOnAnnex(root, FileInfoQueryResult.serializer(), "info", "--json", file.relativeTo(root).path)
+            }
         }
 
-        val find: CompletableFuture<FindQueryResult?> by lazy {
-            Git.executeOnAnnex(root, FindQueryResult.serializer(), "find", "--json", file.relativeTo(root).path)
+        val find: Deferred<FindQueryResult?> by lazy {
+            GlobalScope.async { // fixme
+                Git.executeOnAnnex(root, FindQueryResult.serializer(), "find", "--json", file.relativeTo(root).path)
+            }
         }
     }
 

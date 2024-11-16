@@ -104,7 +104,7 @@ suspend fun loadRepositoriesInfo(
 ): CopyOpRepositoriesInfo {
     verboseOut.println("Loading git-annex info in ${repoRoot.path}")
     val loadedRepositoriesInfo =
-        Git.executeOnAnnex(repoRoot, RepositoriesInfoQueryResult.serializer(), "info", "--json").get()
+        Git.executeOnAnnex(repoRoot, RepositoriesInfoQueryResult.serializer(), "info", "--json")
     if (loadedRepositoriesInfo == null) {
         System.err.println("Could not load info!")
         throw IllegalStateException("Could not load repo info!")
@@ -127,7 +127,7 @@ suspend fun loadRepositoriesInfo(
 
     verboseOut.println("Loading backup remotes data...")
     val remotesInfo: Map<String, RemoteInfoQueryResult?> = backupRepoUUIDs.associateWith { uuid ->
-        Git.executeOnAnnex(repoRoot, RemoteInfoQueryResult.serializer(), "info", "--json", uuid).get()
+        Git.executeOnAnnex(repoRoot, RemoteInfoQueryResult.serializer(), "info", "--json", uuid)
     }
 
     return CopyOpRepositoriesInfo(loadedRepositoriesInfo, remotesInfo)

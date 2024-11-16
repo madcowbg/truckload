@@ -1,5 +1,6 @@
 package gui
 
+import kotlinx.coroutines.*
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -162,51 +163,47 @@ enum class GitCommandState {
 data class GitCommandHistory(val cmd: ProcessBuilder, var state: GitCommandState = GitCommandState.SCHEDULED)
 
 object Git {
-    private val gitLock = Object()
     private val jsonDecoder = Json { ignoreUnknownKeys = true }
 
     val commands = mutableListOf<GitCommandHistory>()
 
-    private fun runGitProcess(workdir: File, vararg args: String): CompletableFuture<Process> {
+    private suspend fun runGitProcess(workdir: File, vararg args: String): Process {
         val processBuilder = ProcessBuilder("git", *args)
             .directory(workdir)
         commands.add(GitCommandHistory(processBuilder))
         println(processBuilder.command())
-        val result = CompletableFuture<Process>()
-        Thread {
-            synchronized(gitLock) {
-                commands.filter { it.cmd == processBuilder }.forEach { it.state = GitCommandState.RUNNING }
 
-                val process = processBuilder.start()
-                process.waitFor()
+        return withContext(Dispatchers.IO) {
+            commands.filter { it.cmd == processBuilder }.forEach { it.state = GitCommandState.RUNNING }
 
-                commands.filter { it.cmd == processBuilder }.forEach { it.state = GitCommandState.FINISHED }
-                result.complete(process)
-            }
-        }.start()
-        return result
+            val process = processBuilder.start()
+            process.waitFor()
+
+            commands.filter { it.cmd == processBuilder }.forEach { it.state = GitCommandState.FINISHED }
+            process
+        }
     }
 
     private fun readProcessOutput(process: Process): String =
         BufferedReader(InputStreamReader(process.inputStream)).readText()
 
-    fun <T> executeOnAnnex(
+    suspend fun <T> executeOnAnnex(
         root: File,
         strategy: DeserializationStrategy<T>,
         vararg args: String
-    ): CompletableFuture<T?> {
-        return runGitProcess(root, "annex", *args).thenApply { process ->
-            if (process.exitValue() != 0) {
-                println(BufferedReader(InputStreamReader(process.errorStream)).readText())
+    ): T? {
+        val process = runGitProcess(root, "annex", *args)
+
+        return if (process.exitValue() != 0) {
+            println(BufferedReader(InputStreamReader(process.errorStream)).readText())
+            null
+        } else {
+            val result = readProcessOutput(process)
+            if (result.isEmpty()) {
+                println("Process returned no result")
                 null
             } else {
-                val result = readProcessOutput(process)
-                if (result.isEmpty()) {
-                    println("Process returned no result")
-                    null
-                } else {
-                    jsonDecoder.decodeFromString(strategy, result)
-                }
+                jsonDecoder.decodeFromString(strategy, result)
             }
         }
     }
