@@ -1,5 +1,7 @@
-package gui
+package gui.deprecated
 
+import gui.GitCommandHistory
+import gui.GitCommandState
 import java.io.Closeable
 import java.io.File
 import java.io.InputStreamReader

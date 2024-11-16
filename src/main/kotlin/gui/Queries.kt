@@ -1,12 +1,7 @@
 package gui
 
-import kotlinx.coroutines.*
-import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import java.io.BufferedReader
-import java.io.File
-import java.io.InputStreamReader
+
 
 //{ "command":"whereis",
 //    "error-messages":[],
@@ -14,7 +9,7 @@ import java.io.InputStreamReader
 //    "input":["Movies\\The Hobbit - The Cardinal Cut (Full).mp4"],
 //    "key":"SHA256E-s6324584102--5197b1b31acb47b93f6f7160a998cf969dbf174bc3685cf00cdf5c3a83de3112.mp4",
 //    "note":"2 copies\n\t18d7bf7b-70f0-4b14-86a7-c53d334bd581 -- Backups Vol.02/Videos [here]\n\t3dad22f3-41f0-48cb-ac9b-1b2b7affee54 -- bono.nonchev@4fb7a0458d7a:/git-annex-repos/Videos [origin]\n",
-//    "success":true, 
+//    "success":true,
 //    "untrusted":[],
 //    "whereis":[
 //        { "description":"Backups Vol.02/Videos", "here":true, "urls":[], "uuid":"18d7bf7b-70f0-4b14-86a7-c53d334bd581" },
@@ -152,68 +147,3 @@ data class RemoteInfoQueryResult(
 // "mtime":"unknown"}
 @Serializable
 data class FindQueryResult(val file: String, val bytesize: Long, val backend: String)
-
-enum class GitCommandState {
-    SCHEDULED,
-    RUNNING,
-    FINISHED
-}
-
-data class GitCommandHistoryItem(val cmd: ProcessBuilder, var state: GitCommandState = GitCommandState.SCHEDULED)
-object GitCommandHistory {
-    private val commands = mutableListOf<GitCommandHistoryItem>()
-    val size: Int
-        get() = commands.size
-
-    fun record(builder: ProcessBuilder) {
-        commands.add(GitCommandHistoryItem(builder))
-    }
-
-    fun changeState(processBuilder: ProcessBuilder?, state: GitCommandState) {
-        commands.filter { it.cmd == processBuilder }.forEach { it.state = state }
-    }
-
-    fun tail(n: Int): List<GitCommandHistoryItem> =
-        commands.slice((commands.size - n).coerceAtLeast(0) until commands.size).reversed()
-}
-
-object Git {
-    private val jsonDecoder = Json { ignoreUnknownKeys = true }
-
-    suspend fun <T> executeOnAnnex(
-        root: File,
-        strategy: DeserializationStrategy<T>,
-        vararg args: String
-    ): T? {
-        val processBuilder = ProcessBuilder("git", "annex", *args)
-            .directory(root)
-        GitCommandHistory.record(processBuilder)
-        println(processBuilder.command())
-        val process = withContext(Dispatchers.IO) {
-            GitCommandHistory.changeState(processBuilder, GitCommandState.RUNNING)
-
-            val process = processBuilder.start()
-            process.waitFor()
-
-            GitCommandHistory.changeState(processBuilder, GitCommandState.FINISHED)
-            process
-        }
-
-        return toJsonIfSuccessfulAndNonempty(process, strategy)
-    }
-}
-
-private fun <T> toJsonIfSuccessfulAndNonempty(process: Process, strategy: DeserializationStrategy<T>): T? {
-    return if (process.exitValue() != 0) {
-        println(BufferedReader(InputStreamReader(process.errorStream)).readText())
-        null
-    } else {
-        val result = BufferedReader(InputStreamReader(process.inputStream)).readText()
-        if (result.isEmpty()) {
-            println("Process returned no result")
-            null
-        } else {
-            jsonDecoder.decodeFromString(strategy, result)
-        }
-    }
-}

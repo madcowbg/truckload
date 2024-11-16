@@ -3,6 +3,7 @@ package gui
 import glm_.vec4.Vec4
 import gui.UISelection.selectedFile
 import gui.UISelection.selectedRepo
+import gui.deprecated.*
 import imgui.ImGui
 import imgui.ImGui.sameLine
 import imgui.ImGui.separator

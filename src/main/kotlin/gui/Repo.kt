@@ -1,11 +1,10 @@
 package gui
 
+import gui.deprecated.Git
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.async
-import kotlinx.serialization.builtins.nullable
 import java.io.File
-import java.util.concurrent.CompletableFuture
 
 sealed interface RepoItem {
     val name: String
