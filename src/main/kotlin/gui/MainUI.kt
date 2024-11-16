@@ -366,7 +366,7 @@ class RepoUI(val repo: Repo) : Closeable {
             var info = loadedInfo
             if (info == null) {
                 info = coroutineScope.async {
-                    GitQuery(
+                    GitJsonQuery(
                         GitProcess(repo.root, "annex", "info", "--fast", "--json"),
                         RepositoriesInfoQueryResult.serializer(),
                     ).execute()
@@ -378,7 +378,7 @@ class RepoUI(val repo: Repo) : Closeable {
 
     fun refresh() {
         loadedInfo = coroutineScope.async {
-            GitQuery(
+            GitJsonQuery(
                 GitProcess(repo.root, "annex", "info", "--json"),
                 RepositoriesInfoQueryResult.serializer()
             ).execute()
@@ -390,7 +390,7 @@ class RepoUI(val repo: Repo) : Closeable {
     fun remoteInfo(uuid: String): Deferred<RemoteInfoQueryResult?> =
         remotesInfo.computeIfAbsent(uuid) {
             coroutineScope.async {
-                GitQuery(
+                GitJsonQuery(
                     GitProcess(repo.root, "annex", "info", "--json", "--fast", uuid),
                     RemoteInfoQueryResult.serializer(),
                 ).execute()
@@ -402,8 +402,7 @@ class RepoUI(val repo: Repo) : Closeable {
     }
 }
 
-class GitProcess(private val repoRoot: File, vararg args: String) {
-
+class GitProcess(repoRoot: File, vararg args: String) {
     val builder = ProcessBuilder("git", *args)
         .redirectError(ProcessBuilder.Redirect.INHERIT)
         .directory(repoRoot)
@@ -419,10 +418,11 @@ class GitProcess(private val repoRoot: File, vararg args: String) {
     fun onFinish() {
         GitCommandHistory.changeState(builder, GitCommandState.FINISHED)
     }
-
 }
 
-class GitQuery<T>(val process: GitProcess, val serializer: DeserializationStrategy<T>) {
+typealias ProcessReader<T> = (Process) -> T?
+
+open class GitQuery<T>(val process: GitProcess, val reader: ProcessReader<T>) {
     suspend fun execute(): T? {
         this.process.onStart()
         try {
@@ -434,30 +434,45 @@ class GitQuery<T>(val process: GitProcess, val serializer: DeserializationStrate
                 process.waitFor()
             }
 
-            return toJsonIfSuccessfulAndNonempty(process, serializer)
+            return reader(process)
         } finally {
             this.process.onFinish()
         }
     }
 }
 
-fun <T> toJsonIfSuccessfulAndNonempty(process: Process, strategy: DeserializationStrategy<T>): T? {
-    return if (process.exitValue() != 0) {
-        System.err.println(BufferedReader(InputStreamReader(process.errorStream)).readText())
+class GitSimpleQuery(process: GitProcess) : GitQuery<String>(process, { process ->
+    if (process.exitValue() != 0) {
         null
     } else {
-        val result = BufferedReader(InputStreamReader(process.inputStream)).readText()
-        if (result.isEmpty()) {
-            System.err.println("Process returned no result")
+        BufferedReader(InputStreamReader(process.inputStream)).readText()
+    }
+})
+
+class GitJsonQuery<T>(process: GitProcess, serializer: DeserializationStrategy<T>) :
+    GitQuery<T>(process, serializer.fromJsonIfSuccessfulAndNonempty())
+
+fun <T> DeserializationStrategy<T>.fromJsonIfSuccessfulAndNonempty(): ProcessReader<T?> {
+    val strategy: DeserializationStrategy<T> = this
+    return { process: Process ->
+        if (process.exitValue() != 0) {
+            System.err.println(BufferedReader(InputStreamReader(process.errorStream)).readText())
             null
         } else {
-            jsonDecoder.decodeFromString(strategy, result)
+            val result = BufferedReader(InputStreamReader(process.inputStream)).readText()
+            if (result.isEmpty()) {
+                System.err.println("Process returned no result")
+                null
+            } else {
+                jsonDecoder.decodeFromString(strategy, result)
+            }
         }
     }
 }
 
 object UISelection {
-    var selectedRepo: RepoUI? = AppSettings.repos.firstOrNull()?.let { File(it) }?.let { Repo(it) }?.let { RepoUI(it) }
+    var selectedRepo: RepoUI? =
+        AppSettings.repos.firstOrNull()?.let { File(it) }?.let { Repo(it) }?.let { RepoUI(it) }
         set(value) {
             selectedFile = null
             selectedBackupRepoUUIDs.clear()

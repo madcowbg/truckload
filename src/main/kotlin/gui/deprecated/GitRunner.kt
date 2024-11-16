@@ -2,7 +2,7 @@ package gui.deprecated
 
 import gui.GitCommandHistory
 import gui.GitCommandState
-import gui.toJsonIfSuccessfulAndNonempty
+import gui.fromJsonIfSuccessfulAndNonempty
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.DeserializationStrategy
@@ -28,7 +28,7 @@ object Git {
             process
         }
 
-        return toJsonIfSuccessfulAndNonempty(process, strategy)
+        return strategy.fromJsonIfSuccessfulAndNonempty().invoke(process)
     }
 }
 
