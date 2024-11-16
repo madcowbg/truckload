@@ -57,29 +57,21 @@ suspend fun copyFilesRequiringBackup(
 ) {
     val remotesInfo = remotesInfoFuture.await()
 
-    inAnyBackup.sortedFiles.forEach { file ->
-        val backupUUID = chooseBackupDestination(remotesInfo, fileInfos, backupRepoUUIDs, file)
-            ?: error("No place to backup $file - all remotes are full!")
+    GitBatchCopy(repoRoot).use { copyOp ->
+        for (file in inAnyBackup.sortedFiles) {
+            val backupUUID = chooseBackupDestination(remotesInfo, fileInfos, backupRepoUUIDs, file)
+                ?: error("No place to backup $file - all remotes are full!")
 
-        runBlocking {
-            backupFileToRemote(repoRoot, backupUUID = backupUUID, file = file)
+            backupFileToRemote(backupUUID = backupUUID, file = file, copyOp)
         }
     }
-    GitBatchCopy.close() // close if one remains open
 }
 
-suspend fun backupFileToRemote(repoRoot: File, backupUUID: String, file: String) {
+suspend fun backupFileToRemote(backupUUID: String, file: String, copyOp: GitBatchCopy) {
     verboseOut.println("Determined to store to $backupUUID.")
     verboseOut.println("Copying $file to store")
-    val gitCopyOperator = GitBatchCopy.toUUID(repoRoot, backupUUID)
-        ?: throw IllegalStateException("Can't find operator for $backupUUID")
-    val result = gitCopyOperator.executeCopy(file)
 
-    if (result == null) {
-        System.err.println("Copy process failed for $file, log tail:")
-        gitCopyOperator.tail(3).forEach { System.err.println(it) }
-        throw IllegalStateException("Copy process failed for $file")
-    }
+    copyOp.executeCopy(file, backupUUID) ?: throw IllegalStateException("Copy process failed for $file")
 }
 
 fun chooseBackupDestination(
@@ -157,7 +149,8 @@ suspend fun loadFilesInRepositoryInfo(
     val reposInfo = reposInfoFuture.await()
     verboseOut.println("Reading `whereis` information for ${reposInfo.loadedRepositoriesInfo.`annexed files in working tree`} files from ${repoRoot.path}.")
 
-    val fileWhereis = readWhereisInformationForFiles(repoRoot, reposInfo.loadedRepositoriesInfo, whereisProgressCallback)
+    val fileWhereis =
+        readWhereisInformationForFiles(repoRoot, reposInfo.loadedRepositoriesInfo, whereisProgressCallback)
 
     val fileInfos: Map<String, FileInfoQueryResult> =
         readFilesInfo(reposInfo.loadedRepositoriesInfo, fileWhereis, repoRoot, infoProgressCallback)
@@ -222,22 +215,30 @@ data class CopyCmdResult(
     val success: Boolean
 )
 
-class GitBatchCopy private constructor(repoRoot: File, val toUUID: String) :
-    GitBatchCommand(repoRoot, "annex", "copy", "--json", "--from-anywhere", "--to=$toUUID", "--batch") {
+class GitBatchCopy(private val repoRoot: File) : Closeable {
+    var uuidOfCommand: String? = null
+        set(value) {
+            if (value != field) {
+                field = value
+                cmd?.close()
+                cmd = GitBatchCommand(repoRoot, "annex", "copy", "--json", "--from-anywhere", "--to=$value", "--batch")
+            } else {
+                field = value
+            }
+        }
 
-    init {
-        verboseOut.println("Batch copy CMD: ${builder.command()}")
-    }
+    var cmd: GitBatchCommand? = null
+        private set
 
-    private val log = mutableListOf<String>()
-    fun tail(n: Int = Int.MAX_VALUE) = log.slice((log.size - n).coerceAtLeast(0) until log.size)
+    suspend fun executeCopy(file: String, toUUID: String): CopyCmdResult? {
+        this.uuidOfCommand = toUUID
+        val cmd = this.cmd ?: return null
 
-    suspend fun executeCopy(file: String): CopyCmdResult? {
+        verboseOut.println("Batch copy CMD: ${cmd.builder?.command()}")
+
         verboseOut.println("Copying $file...")
 
-        log.add("[CMD]$file")
-        val result = runOnce(batchUnitCmd = file) { resultStr ->
-            log.add("[RES]$resultStr")
+        val result = cmd.runOnce(batchUnitCmd = file) { resultStr ->
             if (resultStr == "") { // operation did nothing
                 null
             } else {
@@ -249,33 +250,13 @@ class GitBatchCopy private constructor(repoRoot: File, val toUUID: String) :
         return result
     }
 
-    companion object : Closeable {
-        private var copyOperator: GitBatchCopy? = null
-        fun toUUID(repoRoot: File, uuid: String): GitBatchCopy? {
-            synchronized(Companion) {
-                val oldCopyOperator = copyOperator
-                if (oldCopyOperator?.toUUID != uuid || oldCopyOperator.repoRoot != repoRoot) {
-                    if (oldCopyOperator != null) {
-                        synchronized(oldCopyOperator) {
-                            oldCopyOperator.close()
-                        }
-                    }
-                    copyOperator = GitBatchCopy(repoRoot, uuid)
-                }
-                return copyOperator
-            }
-        }
-
-        override fun close() {
-            synchronized(Companion) {
-                copyOperator?.close()
-                copyOperator = null
-            }
-        }
-
-        val isRunning: Boolean
-            get() = synchronized(Companion) { copyOperator != null }
+    override fun close() {
+        cmd?.close()
+        cmd = null
     }
+
+    val isRunning: Boolean
+        get() = cmd != null
 }
 
 fun toGB(bytes: Long) =

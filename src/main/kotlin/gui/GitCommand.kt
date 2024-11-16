@@ -5,7 +5,7 @@ import java.io.File
 import java.io.InputStreamReader
 
 open class GitCommand(repoRoot: File, vararg args: String) : Closeable {
-    protected val builder = ProcessBuilder("git", *args)
+    val builder = ProcessBuilder("git", *args)
         .redirectError(ProcessBuilder.Redirect.INHERIT)
         .directory(repoRoot)
 

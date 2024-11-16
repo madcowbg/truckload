@@ -49,7 +49,11 @@ class BackupperUI(val repoRoot: File, backupRepoUUIDs: List<String>) : Closeable
 
     var runningOp: Job? = null
 
+    var copyOp = GitBatchCopy(repoRoot)
+
     override fun close() {
+        copyOp.close()
+
         repositoriesInfo?.cancel("Closing BackupperUI")
         filesInfo?.cancel("Closing BackupperUI")
         inAnyBackup?.cancel("Closing BackupperUI")
@@ -106,7 +110,7 @@ class BackupperUI(val repoRoot: File, backupRepoUUIDs: List<String>) : Closeable
             val backupUUID = chooseBackupDestination(remotesInfo, fileInfos, backupRepoUUIDs, file)
                 ?: return@launch
 
-            backupFileToRemote(repoRoot, backupUUID = backupUUID, file = file)
+            backupFileToRemote(backupUUID = backupUUID, file = file, copyOp)
 
             onSuccess()
         }
@@ -200,7 +204,7 @@ fun showBackupperWindow() {
         }
         separator()
 
-        val status = if (GitBatchCopy.isRunning) "(running)" else "(stopped)"
+        val status = if (backupperUI.copyOp.isRunning) "(running)" else "(stopped)"
         if (backupperUI.runningOp != null) ImGui.beginDisabled()
         ImGui.checkbox("Enable Batch Copy", UISelection::enableGitBatch); sameLine(); ImGui.text(status)
         if (backupperUI.runningOp != null) ImGui.endDisabled()
@@ -380,7 +384,7 @@ class RepoUI(val repo: Repo) {
 }
 
 object UISelection {
-    var selectedRepo: RepoUI? = RepoUI(Repo(File(AppSettings.repos.firstOrNull())))
+    var selectedRepo: RepoUI? = AppSettings.repos.firstOrNull()?.let { File(it) }?.let { Repo(it) }?.let { RepoUI(it) }
         set(value) {
             selectedFile = null
             selectedBackupRepoUUIDs.clear()
@@ -395,7 +399,7 @@ object UISelection {
 
     var enableGitBatch: Boolean = false
         set(value) {
-            if (!value) GitBatchCopy.close()
+            if (!value) currentBackupper?.close()
             field = value
         }
     var enableAutoCopy: Boolean = false

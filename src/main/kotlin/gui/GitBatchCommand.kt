@@ -5,9 +5,8 @@ import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.io.File
 import java.io.OutputStreamWriter
-import java.util.concurrent.CompletableFuture
 
-open class GitBatchCommand(protected val repoRoot: File, vararg args: String) : Closeable, GitCommand(repoRoot, *args) {
+open class GitBatchCommand(val repoRoot: File, vararg args: String) : Closeable, GitCommand(repoRoot, *args) {
     private val commandStream = OutputStreamWriter(process.outputStream)
 
     override fun close() {
