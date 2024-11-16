@@ -368,6 +368,7 @@ class RepoUI(val repo: Repo) {
                     GitCommand(
                         repo.root,
                         RepositoriesInfoQueryResult.serializer(),
+                        "annex",
                         "info",
                         "--fast",
                         "--json"
@@ -380,7 +381,7 @@ class RepoUI(val repo: Repo) {
 
     fun refresh() {
         loadedInfo = GlobalScope.async { // fixme should not use global scope
-            GitCommand(repo.root, RepositoriesInfoQueryResult.serializer(), "info", "--json").execute()
+            GitCommand(repo.root, RepositoriesInfoQueryResult.serializer(), "annex", "info", "--json").execute()
         }
     }
 
@@ -389,7 +390,15 @@ class RepoUI(val repo: Repo) {
     fun remoteInfo(uuid: String): Deferred<RemoteInfoQueryResult?> =
         remotesInfo.computeIfAbsent(uuid) {
             GlobalScope.async { // fixme should not use global scope
-                GitCommand(repo.root, RemoteInfoQueryResult.serializer(), "info", "--json", "--fast", uuid).execute()
+                GitCommand(
+                    repo.root,
+                    RemoteInfoQueryResult.serializer(),
+                    "annex",
+                    "info",
+                    "--json",
+                    "--fast",
+                    uuid
+                ).execute()
             }
         }
 }
@@ -398,6 +407,7 @@ class GitCommand<T>(private val repoRoot: File, val serializer: DeserializationS
     val builder = ProcessBuilder("git", *args)
         .redirectError(ProcessBuilder.Redirect.INHERIT)
         .directory(repoRoot)
+
     init {
         GitCommandHistory.record(builder)
     }
@@ -408,12 +418,12 @@ class GitCommand<T>(private val repoRoot: File, val serializer: DeserializationS
             builder.start()
         }
 
-        process.destroy() // commands need exiting before closing
-        GitCommandHistory.changeState(builder, GitCommandState.FINISHED)
-
         withContext(Dispatchers.IO) {
             process.waitFor()
         }
+
+        process.destroy() // commands need exiting before closing
+        GitCommandHistory.changeState(builder, GitCommandState.FINISHED)
 
         return toJsonIfSuccessfulAndNonempty(process, serializer)
     }
