@@ -7,7 +7,6 @@ import kotlinx.serialization.json.Json
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
-import java.util.concurrent.CompletableFuture
 
 //{ "command":"whereis",
 //    "error-messages":[],
@@ -160,51 +159,61 @@ enum class GitCommandState {
     FINISHED
 }
 
-data class GitCommandHistory(val cmd: ProcessBuilder, var state: GitCommandState = GitCommandState.SCHEDULED)
+data class GitCommandHistoryItem(val cmd: ProcessBuilder, var state: GitCommandState = GitCommandState.SCHEDULED)
+object GitCommandHistory {
+    private val commands = mutableListOf<GitCommandHistoryItem>()
+    val size: Int
+        get() = commands.size
+
+    fun record(builder: ProcessBuilder) {
+        commands.add(GitCommandHistoryItem(builder))
+    }
+
+    fun changeState(processBuilder: ProcessBuilder?, state: GitCommandState) {
+        commands.filter { it.cmd == processBuilder }.forEach { it.state = state }
+    }
+
+    fun tail(n: Int): List<GitCommandHistoryItem> =
+        commands.slice((commands.size - n).coerceAtLeast(0) until commands.size).reversed()
+}
 
 object Git {
     private val jsonDecoder = Json { ignoreUnknownKeys = true }
-
-    val commands = mutableListOf<GitCommandHistory>()
-
-    private suspend fun runGitProcess(workdir: File, vararg args: String): Process {
-        val processBuilder = ProcessBuilder("git", *args)
-            .directory(workdir)
-        commands.add(GitCommandHistory(processBuilder))
-        println(processBuilder.command())
-
-        return withContext(Dispatchers.IO) {
-            commands.filter { it.cmd == processBuilder }.forEach { it.state = GitCommandState.RUNNING }
-
-            val process = processBuilder.start()
-            process.waitFor()
-
-            commands.filter { it.cmd == processBuilder }.forEach { it.state = GitCommandState.FINISHED }
-            process
-        }
-    }
-
-    private fun readProcessOutput(process: Process): String =
-        BufferedReader(InputStreamReader(process.inputStream)).readText()
 
     suspend fun <T> executeOnAnnex(
         root: File,
         strategy: DeserializationStrategy<T>,
         vararg args: String
     ): T? {
-        val process = runGitProcess(root, "annex", *args)
+        val processBuilder = ProcessBuilder("git", "annex", *args)
+            .directory(root)
+        GitCommandHistory.record(processBuilder)
+        println(processBuilder.command())
+        val process = withContext(Dispatchers.IO) {
+            GitCommandHistory.changeState(processBuilder, GitCommandState.RUNNING)
 
-        return if (process.exitValue() != 0) {
-            println(BufferedReader(InputStreamReader(process.errorStream)).readText())
+            val process = processBuilder.start()
+            process.waitFor()
+
+            GitCommandHistory.changeState(processBuilder, GitCommandState.FINISHED)
+            process
+        }
+
+        return toJsonIfSuccessfulAndNonempty(process, strategy)
+    }
+}
+
+private fun <T> toJsonIfSuccessfulAndNonempty(process: Process, strategy: DeserializationStrategy<T>): T? {
+    return if (process.exitValue() != 0) {
+        println(BufferedReader(InputStreamReader(process.errorStream)).readText())
+        null
+    } else {
+        val result = BufferedReader(InputStreamReader(process.inputStream)).readText()
+        if (result.isEmpty()) {
+            println("Process returned no result")
             null
         } else {
-            val result = readProcessOutput(process)
-            if (result.isEmpty()) {
-                println("Process returned no result")
-                null
-            } else {
-                jsonDecoder.decodeFromString(strategy, result)
-            }
+            jsonDecoder.decodeFromString(strategy, result)
         }
     }
 }

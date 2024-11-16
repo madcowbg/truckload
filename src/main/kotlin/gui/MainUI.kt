@@ -410,17 +410,26 @@ object UISelection {
 
 fun showGitExecutionStateWindow() {
     ImGui.begin("git-annex execution state")
-    Git.commands.reversed().forEach {
+    GitCommandHistory.tail(49).forEach {
         val icon = when (it.state) {
             GitCommandState.SCHEDULED -> "S"
             GitCommandState.RUNNING -> "R"
             GitCommandState.FINISHED -> "D"
         }
-        ImGui.text("$icon ${it.cmd.command()}")
+        ImGui.text("$icon ${shorten(it.cmd.command().toString())}")
+    }
+    if (GitCommandHistory.size > 49) {
+        ImGui.text("...")
     }
     ImGui.end()
 }
 
+private fun shorten(it: String) =
+    if (it.length < 100) {
+        it
+    } else {
+        it.substring(0 until 97) + "..."
+    }
 
 fun showSelectedFileDetailsWindow() {
     ImGui.begin("File details")

@@ -9,6 +9,10 @@ open class GitCommand(repoRoot: File, vararg args: String) : Closeable {
         .redirectError(ProcessBuilder.Redirect.INHERIT)
         .directory(repoRoot)
 
+    init {
+        GitCommandHistory.record(builder)
+    }
+
     protected val process: Process = builder.start()
 
     protected val resultStream = InputStreamReader(process.inputStream).buffered()
