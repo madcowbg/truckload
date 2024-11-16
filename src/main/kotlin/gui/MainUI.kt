@@ -8,6 +8,8 @@ import imgui.ImGui.sameLine
 import imgui.ImGui.separator
 import imgui.ImGui.text
 import imgui.ImGui.textColored
+import imgui.dsl.tabBar
+import imgui.dsl.tabItem
 import imgui.MutableProperty
 import imgui.dsl
 import java.io.Closeable
@@ -250,15 +252,22 @@ fun showRepoInformationWindow() {
             ImGui.textColored(YELLOW, "Loading...")
         }
 
-        shownRepo.info.takeIf { it.isDone }?.get()?.let {
-            if (!it.success) {
-                textColored(RED, "Error reading repo!")
-            } else {
-                it.`trusted repositories`.forEach { repo -> shownRepo.showRepoDescriptorLine(it, repo) }
-                separator()
-                it.`semitrusted repositories`.forEach { repo -> shownRepo.showRepoDescriptorLine(it, repo) }
-                separator()
-                it.`untrusted repositories`.forEach { repo -> shownRepo.showRepoDescriptorLine(it, repo) }
+        tabBar("RepoSettings") {
+            tabItem("Basic Info") {
+                shownRepo.info.takeIf { it.isDone }?.get()?.let {
+                    if (!it.success) {
+                        textColored(RED, "Error reading repo!")
+                    } else {
+                        it.`trusted repositories`.forEach { repo -> shownRepo.showRepoDescriptorLine(it, repo) }
+                        separator()
+                        it.`semitrusted repositories`.forEach { repo -> shownRepo.showRepoDescriptorLine(it, repo) }
+                        separator()
+                        it.`untrusted repositories`.forEach { repo -> shownRepo.showRepoDescriptorLine(it, repo) }
+                    }
+                }
+            }
+            tabItem("Groups") {
+                text("TODO\ntralala")
             }
         }
     }

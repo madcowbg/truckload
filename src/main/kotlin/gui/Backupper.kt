@@ -6,8 +6,6 @@ import me.tongfei.progressbar.*
 import kotlinx.serialization.json.Json
 import java.io.Closeable
 import java.io.File
-import java.io.InputStreamReader
-import java.io.OutputStreamWriter
 import java.io.PrintStream
 import java.nio.file.Files
 import java.util.concurrent.CompletableFuture
@@ -22,9 +20,9 @@ class BackupperArgs(parser: ArgParser) {
     )
 }
 
-private val verboseOut: PrintStream = System.out
+val verboseOut: PrintStream = System.out
 
-private val jsonDecoder = Json { ignoreUnknownKeys = true }
+val jsonDecoder = Json { ignoreUnknownKeys = true }
 private const val driveBufferSize: Long = 50 * (1L shl 30) // 50GB
 
 fun main(args: Array<String>): Unit = ArgParser(args).parseInto(::BackupperArgs).run {
@@ -219,45 +217,29 @@ data class CopyCmdResult(
     val success: Boolean
 )
 
-class GitBatchCopy private constructor(private val repoRoot: File, val toUUID: String) : Closeable {
-    private val builder = ProcessBuilder("git", "annex", "copy", "--json", "--from-anywhere", "--to=$toUUID", "--batch")
-        .redirectError(ProcessBuilder.Redirect.INHERIT)
-        .directory(repoRoot)
-
-    init {
-        verboseOut.println("Batch copy CMD: ${builder.command()}")
-    }
-
-    private val process = builder.start()
-    private val commandStream = OutputStreamWriter(process.outputStream)
-    private val resultStream = InputStreamReader(process.inputStream).buffered()
+class GitBatchCopy private constructor(repoRoot: File, val toUUID: String) :
+    GitBatchCommand(repoRoot, "annex", "copy", "--json", "--from-anywhere", "--to=$toUUID", "--batch") {
 
     private val log = mutableListOf<String>()
     fun tail(n: Int = Int.MAX_VALUE) = log.slice((log.size - n).coerceAtLeast(0) until log.size)
 
     fun executeCopy(file: String): CopyCmdResult? {
-        synchronized(process) {
+        synchronized(this) {
             verboseOut.println("Copying $file...")
 
             log.add("[CMD]$file")
-            commandStream.write(file + "\n")
-            commandStream.flush()
-
-            verboseOut.println("Waiting for results...")
-            val resultStr = resultStream.readLine()
-            log.add("[RES]$resultStr")
-            verboseOut.println("Copying done!")
-            return if (resultStr == "") { // operation did nothing
-                null
-            } else {
-                jsonDecoder.decodeFromString(CopyCmdResult.serializer(), resultStr)
+            val result = runOnce(batchUnitCmd = file) { resultStr ->
+                log.add("[RES]$resultStr")
+                if (resultStr == "") { // operation did nothing
+                    null
+                } else {
+                    jsonDecoder.decodeFromString(CopyCmdResult.serializer(), resultStr)
+                }
             }
-        }
-    }
 
-    override fun close() {
-        process.destroy()
-        process.waitFor()
+            verboseOut.println("Copying done!")
+            return result
+        }
     }
 
     companion object : Closeable {
@@ -292,27 +274,24 @@ class GitBatchCopy private constructor(private val repoRoot: File, val toUUID: S
 fun toGB(bytes: Long) =
     bytes.toFloat() / (1 shl 30)
 
+
 private fun readFilesInfo(
     loadedRepositoriesInfo: RepositoriesInfoQueryResult,
     fileWhereis: Map<String, WhereisQueryResult>,
     repoRoot: File
 ): Map<String, FileInfoQueryResult> {
-    val pb = ProgressBar("`info`   ", loadedRepositoriesInfo.`annexed files in working tree`!!)
-    val fileInfos: Map<String, FileInfoQueryResult> = fileWhereis.keys.chunked(100).flatMap { chunk ->
-        pb.stepBy(chunk.size.toLong())
-        val process = ProcessBuilder("git", "annex", "info", "--json", "--bytes", *chunk.toTypedArray())
-            .directory(repoRoot)
-            .start()
+    val fileInfos: Map<String, FileInfoQueryResult> =
+        ProgressBar("`info`   ", loadedRepositoriesInfo.`annexed files in working tree`!!).use {
+            fileWhereis.keys.chunked(100).flatMap { chunk ->
+                it.stepBy(chunk.size.toLong())
+                val cmd = GitJsonCommand(
+                    repoRoot, FileInfoQueryResult.serializer(),
+                    "annex", "info", "--json", "--bytes", *chunk.toTypedArray()
+                )
+                cmd.results.map { decoded -> decoded.file to decoded }.toList()
 
-        val result = mutableListOf<Pair<String, FileInfoQueryResult>>()
-        process.inputStream.bufferedReader().forEachLine { line ->
-            val decoded = jsonDecoder.decodeFromString(FileInfoQueryResult.serializer(), line)
-            result.add(decoded.file to decoded)
+            }.toMap()
         }
-        process.waitFor()
-        result
-    }.toMap()
-    pb.close()
     return fileInfos
 }
 
@@ -320,24 +299,21 @@ private fun readWhereisInformationForFiles(
     repoRoot: File,
     loadedRepositoriesInfo: RepositoriesInfoQueryResult
 ): Map<String, WhereisQueryResult> {
-    val process = ProcessBuilder("git", "annex", "whereis", "--json")
-        .directory(repoRoot)
-        .start()
-
     val fileWhereis = mutableMapOf<String, WhereisQueryResult>()
-    val pb = ProgressBar("`whereis`", loadedRepositoriesInfo.`annexed files in working tree`!!)
-    process.inputStream.bufferedReader().forEachLine { line ->
-        pb.step()
+    ProgressBar("`whereis`", loadedRepositoriesInfo.`annexed files in working tree`!!).use { pb ->
+        GitJsonCommand(repoRoot, WhereisQueryResult.serializer(), "annex", "whereis", "--json").use {
+            it.results.forEach { decoded ->
+                pb.step()
 
-        val decoded = jsonDecoder.decodeFromString(WhereisQueryResult.serializer(), line)
-        if (decoded.file in fileWhereis) {
-            System.err.println("File $decoded already exists!")
-            exitProcess(-1)
+                if (decoded.file in fileWhereis) {
+                    System.err.println("File $decoded already exists!")
+                    exitProcess(-1)
+                }
+                fileWhereis[decoded.file] = decoded
+            }
         }
-        fileWhereis[decoded.file] = decoded
     }
-    process.waitFor()
-    pb.close()
+
     return fileWhereis
 }
 
