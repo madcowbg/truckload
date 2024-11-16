@@ -11,7 +11,6 @@ import java.io.Closeable
 import java.io.File
 import java.io.PrintStream
 import java.nio.file.Files
-import java.util.concurrent.CompletableFuture
 import kotlin.system.exitProcess
 
 class BackupperArgs(parser: ArgParser) {
@@ -147,17 +146,21 @@ data class CopyOpFilesInRepositoryInfo(
     val fileInfos: Map<String, FileInfoQueryResult>
 )
 
+typealias ProgressCallback = (current: Int, max: Int) -> Unit
+
 suspend fun loadFilesInRepositoryInfo(
     reposInfoFuture: Deferred<CopyOpRepositoriesInfo>,
-    repoRoot: File
+    repoRoot: File,
+    whereisProgressCallback: ProgressCallback = { _, _ -> },
+    infoProgressCallback: ProgressCallback = { _, _ -> },
 ): CopyOpFilesInRepositoryInfo {
     val reposInfo = reposInfoFuture.await()
     verboseOut.println("Reading `whereis` information for ${reposInfo.loadedRepositoriesInfo.`annexed files in working tree`} files from ${repoRoot.path}.")
 
-    val fileWhereis = readWhereisInformationForFiles(repoRoot, reposInfo.loadedRepositoriesInfo)
+    val fileWhereis = readWhereisInformationForFiles(repoRoot, reposInfo.loadedRepositoriesInfo, whereisProgressCallback)
 
     val fileInfos: Map<String, FileInfoQueryResult> =
-        readFilesInfo(reposInfo.loadedRepositoriesInfo, fileWhereis, repoRoot)
+        readFilesInfo(reposInfo.loadedRepositoriesInfo, fileWhereis, repoRoot, infoProgressCallback)
 
     verboseOut.println("Found ${fileInfos.size} files of which ${fileInfos.values.count { it.size != "?" }} have file size")
     verboseOut.println(
@@ -282,18 +285,24 @@ fun toGB(bytes: Long) =
 private fun readFilesInfo(
     loadedRepositoriesInfo: RepositoriesInfoQueryResult,
     fileWhereis: Map<String, WhereisQueryResult>,
-    repoRoot: File
+    repoRoot: File,
+    infoProgressCallback: ProgressCallback
 ): Map<String, FileInfoQueryResult> {
+    var current = 0
     val fileInfos: Map<String, FileInfoQueryResult> =
         ProgressBar("`info`   ", loadedRepositoriesInfo.`annexed files in working tree`!!).use {
             fileWhereis.keys.chunked(100).flatMap { chunk ->
                 it.stepBy(chunk.size.toLong())
+
                 val cmd = GitJsonCommand(
                     repoRoot, FileInfoQueryResult.serializer(),
                     "annex", "info", "--json", "--bytes", *chunk.toTypedArray()
                 )
-                cmd.results.map { decoded -> decoded.file to decoded }.toList()
 
+                current += chunk.size
+                infoProgressCallback(it.current.toInt(), it.max.toInt())
+
+                cmd.results.map { decoded -> decoded.file to decoded }.toList()
             }.toMap()
         }
     return fileInfos
@@ -301,7 +310,8 @@ private fun readFilesInfo(
 
 private fun readWhereisInformationForFiles(
     repoRoot: File,
-    loadedRepositoriesInfo: RepositoriesInfoQueryResult
+    loadedRepositoriesInfo: RepositoriesInfoQueryResult,
+    whereisProgressCallback: ProgressCallback
 ): Map<String, WhereisQueryResult> {
     val fileWhereis = mutableMapOf<String, WhereisQueryResult>()
     ProgressBar("`whereis`", loadedRepositoriesInfo.`annexed files in working tree`!!).use { pb ->
@@ -313,6 +323,8 @@ private fun readWhereisInformationForFiles(
                     System.err.println("File $decoded already exists!")
                     exitProcess(-1)
                 }
+
+                whereisProgressCallback(pb.current.toInt(), pb.max.toInt())
                 fileWhereis[decoded.file] = decoded
             }
         }

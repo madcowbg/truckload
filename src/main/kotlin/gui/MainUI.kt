@@ -12,6 +12,7 @@ import imgui.dsl.tabBar
 import imgui.dsl.tabItem
 import imgui.MutableProperty
 import imgui.dsl
+import imgui.dsl.withItemWidth
 import kotlinx.coroutines.*
 import java.io.Closeable
 import java.io.File
@@ -62,9 +63,28 @@ class BackupperUI(val repoRoot: File, backupRepoUUIDs: List<String>) : Closeable
         repositoriesInfo = async { loadRepositoriesInfo(repoRoot, backupRepoUUIDs) }
     }
 
+    class ProgressInfo(var current: Int, var max: Int) {
+        val fraction: Float
+            get() = current.toFloat() / max
+    }
+
+    val whereisProgress = ProgressInfo(0, Int.MAX_VALUE)
+    val infoProgress = ProgressInfo(0, Int.MAX_VALUE)
+
     fun triggerLoadFilesInfo() {
         filesInfo?.cancel("Stopping old")
-        filesInfo = repositoriesInfo?.let { async { loadFilesInRepositoryInfo(it, repoRoot) } }
+        filesInfo = repositoriesInfo?.let {
+            async {
+                loadFilesInRepositoryInfo(it, repoRoot,
+                    { currentWhereis, maxWhereis ->
+                        whereisProgress.current = currentWhereis
+                        whereisProgress.max = maxWhereis
+                    }, { currentInfo, maxInfo ->
+                        infoProgress.current = currentInfo
+                        infoProgress.max = maxInfo
+                    })
+            }
+        }
 
         inAnyBackup?.cancel("Stopping old")
         inAnyBackup = filesInfo?.let { async { analyzeBackupState(backupRepoUUIDs, it.await()) } }
@@ -139,7 +159,13 @@ fun showBackupperWindow() {
                     backupperUI.triggerLoadFilesInfo()
                 }
             } else if (!filesInfo.isCompleted) {
-                ImGui.textColored(YELLOW, "Loading Files Info...")
+                text("Loading Whereis Info...")
+                sameLine(200)
+                ImGui.progressBar(backupperUI.whereisProgress.fraction)
+
+                text("Loading Files Info...")
+                sameLine(200)
+                ImGui.progressBar(backupperUI.infoProgress.fraction)
             } else { // has files info
                 val fi = runBlocking { filesInfo.await() }
 
