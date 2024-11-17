@@ -23,6 +23,7 @@ import java.io.BufferedReader
 import java.io.Closeable
 import java.io.File
 import java.io.InputStreamReader
+import java.util.concurrent.ConcurrentHashMap
 
 fun runMainUILoop() {
     showSettingsWindow()
@@ -300,15 +301,11 @@ fun showRepoInformationWindow() {
 
         tabBar("RepoSettings") {
             tabItem("Basic Info") {
-                shownRepo.info.takeIf { it.isCompleted }?.getCompleted()?.let {
-                    if (!it.success) {
+                shownRepo.info.takeIf { it.isCompleted }?.getCompleted().let { info ->
+                    if (info == null) {
                         textColored(RED, "Error reading repo!")
                     } else {
-                        it.`trusted repositories`.forEach { repo -> shownRepo.showRepoDescriptorLine(it, repo) }
-                        separator()
-                        it.`semitrusted repositories`.forEach { repo -> shownRepo.showRepoDescriptorLine(it, repo) }
-                        separator()
-                        it.`untrusted repositories`.forEach { repo -> shownRepo.showRepoDescriptorLine(it, repo) }
+                        info.repositories.forEach { repo -> showRepoDescriptorLine(repo, showBackupCheckbox = true, showGroups = false) }
                     }
                 }
             }
@@ -320,56 +317,88 @@ fun showRepoInformationWindow() {
     ImGui.end()
 }
 
-private fun RepoUI.showRepoDescriptorLine(it: RepositoriesInfoQueryResult, repo: RepositoryDescription) {
-    val size = it.`annex sizes of repositories`.find { size -> size.uuid == repo.uuid }?.size ?: "?"
-    text(size)
-    val color = if (repo.here) GREEN else GRAY
+private fun showRepoDescriptorLine(repo: RepoItemUI, showBackupCheckbox: Boolean, showGroups: Boolean) {
+    text(repo.size)
     sameLine()
-    textColored(color, repo.description)
+    textColored(repo.displayColor, repo.description)
     sameLine()
     if (ImGui.button(repo.uuid)) {
-        val info = this.remoteInfo(repo.uuid).takeIf { it.isCompleted }?.getCompleted()
-        if (info != null) {
-            val pathToNavigate = if (repo.here) {
-                this.repo.root.path
-            } else {
-                info.`repository location`
-            }
-            println("Opening explorer to $pathToNavigate...")
-            if (pathToNavigate != null) {
-                ProcessBuilder("explorer.exe", pathToNavigate).start()
-            }
-        }
-    }
-    sameLine()
-    ImGui.checkbox("Is Backup##${repo.uuid}", object : MutableProperty<Boolean>() {
-        override fun set(value: Boolean) {
-            if (value) {
-                if (!selectedBackupRepoUUIDs.contains(repo.uuid)) {
-                    selectedBackupRepoUUIDs.add(repo.uuid)
-                }
-            } else {
-                selectedBackupRepoUUIDs.remove(repo.uuid)
-            }
+
+        println("Opening explorer to ${repo.pathToNavigate}...")
+        repo.pathToNavigate.takeIf { it.isCompleted }?.getCompleted()?.let { pathToNavigate ->
+            ProcessBuilder("explorer.exe", pathToNavigate).start()
         }
 
-        override fun get(): Boolean = repo.uuid in selectedBackupRepoUUIDs
-    })
+    }
+    if (showBackupCheckbox) {
+        sameLine()
+        ImGui.checkbox("Is Backup##${repo.uuid}", object : MutableProperty<Boolean>() {
+            override fun set(value: Boolean) {
+                if (value) {
+                    if (!selectedBackupRepoUUIDs.contains(repo.uuid)) {
+                        selectedBackupRepoUUIDs.add(repo.uuid)
+                    }
+                } else {
+                    selectedBackupRepoUUIDs.remove(repo.uuid)
+                }
+            }
+
+            override fun get(): Boolean = repo.uuid in selectedBackupRepoUUIDs
+        })
+    }
+    if (showGroups) {
+        sameLine()
+
+    }
+}
+
+class RepoItemUI(
+    val uuid: String,
+    val size: String,
+    val displayColor: Vec4,
+    val description: String,
+    val pathToNavigate: Deferred<String?>
+)
+
+class RepoUIInfo(info: RepositoriesInfoQueryResult, thisRepo: RepoUI, scope: CoroutineScope) {
+    val repositories: List<RepoItemUI>
+
+    init {
+        repositories = (info.`trusted repositories` + info.`semitrusted repositories` + info.`untrusted repositories`)
+            .map { repoInfo ->
+                RepoItemUI(
+                    uuid = repoInfo.uuid,
+                    size = info.`annex sizes of repositories`.find { size -> size.uuid == repoInfo.uuid }?.size ?: "?",
+                    displayColor = if (repoInfo.here) GREEN else GRAY,
+                    description = repoInfo.description,
+                    pathToNavigate = scope.async {
+                        val info = thisRepo.remoteInfo(repoInfo.uuid).await()
+                        if (repoInfo.here) {
+                            thisRepo.repo.root.path
+                        } else {
+                            info?.`repository location`
+                        }
+                    }
+                )
+            }
+    }
 }
 
 class RepoUI(val repo: Repo) : Closeable {
-    private var loadedInfo: Deferred<RepositoriesInfoQueryResult?>? = null
+    private var loadedInfo: Deferred<RepoUIInfo?>? = null
     private val coroutineScope = CoroutineScope(Dispatchers.Default)
 
-    val info: Deferred<RepositoriesInfoQueryResult?>
+    val info: Deferred<RepoUIInfo?>
         get() {
             var info = loadedInfo
             if (info == null) {
                 info = coroutineScope.async {
-                    GitJsonQuery(
+                    val data = GitJsonQuery(
                         GitProcess(repo.root, "annex", "info", "--fast", "--json"),
                         RepositoriesInfoQueryResult.serializer(),
                     ).execute()
+
+                    data?.let { RepoUIInfo(it, this@RepoUI, coroutineScope) }
                 }
                 loadedInfo = info
             }
@@ -378,14 +407,16 @@ class RepoUI(val repo: Repo) : Closeable {
 
     fun refresh() {
         loadedInfo = coroutineScope.async {
-            GitJsonQuery(
+            val data = GitJsonQuery(
                 GitProcess(repo.root, "annex", "info", "--json"),
                 RepositoriesInfoQueryResult.serializer()
             ).execute()
+
+            data?.let { RepoUIInfo(it, this@RepoUI, coroutineScope) }
         }
     }
 
-    private val remotesInfo: MutableMap<String, Deferred<RemoteInfoQueryResult?>> = mutableMapOf()
+    private val remotesInfo: MutableMap<String, Deferred<RemoteInfoQueryResult?>> = ConcurrentHashMap()
 
     fun remoteInfo(uuid: String): Deferred<RemoteInfoQueryResult?> =
         remotesInfo.computeIfAbsent(uuid) {
@@ -441,7 +472,7 @@ open class GitQuery<T>(val process: GitProcess, val reader: ProcessReader<T>) {
     }
 }
 
-class GitSimpleQuery(process: GitProcess) : GitQuery<String>(process, { process ->
+class GitSimpleQuery(gitProcess: GitProcess) : GitQuery<String>(gitProcess, { process ->
     if (process.exitValue() != 0) {
         null
     } else {
