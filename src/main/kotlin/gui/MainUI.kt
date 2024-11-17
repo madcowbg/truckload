@@ -221,7 +221,7 @@ fun showBackupperWindow() {
         if (!UISelection.enableGitBatch) ImGui.beginDisabled()
         ImGui.checkbox("Auto", UISelection::enableAutoCopy)
         sameLine()
-        val countToCopy = scheduledToCopy?.takeIf { it.isCompleted }?.getCompleted()?.size ?: 0
+        val countToCopy = scheduledToCopy?.ifPresent { it.size } ?: 0
         ImGui.text("($countToCopy)")
         if (!UISelection.enableGitBatch) ImGui.endDisabled()
 
@@ -252,10 +252,7 @@ fun showBackupperWindow() {
                 if (hasRunningOp || !UISelection.enableGitBatch) ImGui.endDisabled()
                 sameLine()
 
-                val filesize = backupperUI.filesInfo
-                    ?.takeIf { it.isCompleted }
-                    ?.getCompleted()
-                    ?.fileInfos?.get(file)?.size
+                val filesize = backupperUI.filesInfo.ifPresent { it.fileInfos?.get(file)?.size }
                 val filesizeFormatted = filesize
                     ?.takeIf { it != "?" }
                     ?.let { String.format("%.2f", toGB(it.toLong())) + "GB" }
@@ -301,21 +298,37 @@ fun showRepoInformationWindow() {
 
         tabBar("RepoSettings") {
             tabItem("Basic Info") {
-                shownRepo.info.takeIf { it.isCompleted }?.getCompleted().let { info ->
-                    if (info == null) {
-                        textColored(RED, "Error reading repo!")
-                    } else {
-                        info.repositories.forEach { repo -> showRepoDescriptorLine(repo, showBackupCheckbox = true, showGroups = false) }
+                if (shownRepo.info.ifPresent { true } != true) {
+                    textColored(RED, "Error reading repo!")
+                }
+                shownRepo.info.ifPresent { info ->
+                    info.repositories.forEach { repo ->
+                        showRepoDescriptorLine(
+                            repo,
+                            showBackupCheckbox = true,
+                            showGroups = false
+                        )
                     }
                 }
             }
+
             tabItem("Groups") {
-                text("TODO\ntralala")
+                shownRepo.info.ifPresent { info ->
+                    info.repositories.forEach { repo ->
+                        showRepoDescriptorLine(
+                            repo,
+                            showBackupCheckbox = false,
+                            showGroups = true
+                        )
+                    }
+                }
             }
         }
     }
     ImGui.end()
 }
+
+fun <T, R> Deferred<T?>?.ifPresent(block: (T) -> R): R? = takeIf { it?.isCompleted == true }?.getCompleted()?.let(block)
 
 private fun showRepoDescriptorLine(repo: RepoItemUI, showBackupCheckbox: Boolean, showGroups: Boolean) {
     text(repo.size)
@@ -323,12 +336,10 @@ private fun showRepoDescriptorLine(repo: RepoItemUI, showBackupCheckbox: Boolean
     textColored(repo.displayColor, repo.description)
     sameLine()
     if (ImGui.button(repo.uuid)) {
-
         println("Opening explorer to ${repo.pathToNavigate}...")
-        repo.pathToNavigate.takeIf { it.isCompleted }?.getCompleted()?.let { pathToNavigate ->
+        repo.pathToNavigate.ifPresent { pathToNavigate ->
             ProcessBuilder("explorer.exe", pathToNavigate).start()
         }
-
     }
     if (showBackupCheckbox) {
         sameLine()
@@ -348,7 +359,9 @@ private fun showRepoDescriptorLine(repo: RepoItemUI, showBackupCheckbox: Boolean
     }
     if (showGroups) {
         sameLine()
-
+        repo.groups.ifPresent { groups ->
+            groups.forEach { ImGui.text(it) }
+        }
     }
 }
 
@@ -357,7 +370,8 @@ class RepoItemUI(
     val size: String,
     val displayColor: Vec4,
     val description: String,
-    val pathToNavigate: Deferred<String?>
+    val pathToNavigate: Deferred<String?>,
+    val groups: Deferred<List<String>>
 )
 
 class RepoUIInfo(info: RepositoriesInfoQueryResult, thisRepo: RepoUI, scope: CoroutineScope) {
@@ -378,6 +392,12 @@ class RepoUIInfo(info: RepositoriesInfoQueryResult, thisRepo: RepoUI, scope: Cor
                         } else {
                             info?.`repository location`
                         }
+                    },
+                    groups = scope.async {
+                        GitSimpleQuery(GitProcess(thisRepo.repo.root, "annex", "group", repoInfo.uuid))
+                            .execute()
+                            ?.split(" ")
+                            ?: throw IllegalStateException("Could not get repo groups for ${thisRepo.repo.root}?!")
                     }
                 )
             }
@@ -555,7 +575,7 @@ fun showSelectedFileDetailsWindow() {
         if (!selectedFile!!.whereis.isCompleted) {
             ImGui.text("Running whereis...")
         } else {
-            selectedFile!!.whereis.takeIf { it.isCompleted }?.getCompleted()?.let { that ->
+            selectedFile!!.whereis.ifPresent { that: WhereisQueryResult ->
                 ImGui.text("Found ${that.whereis.size} locations.")
                 that.whereis.forEach {
                     ImGui.text(it.uuid); sameLine()
